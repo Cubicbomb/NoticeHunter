@@ -1,0 +1,39 @@
+# ============================================================
+# 《通知猎人 NoticeHunter》 .gitattributes
+# 目的：Windows / macOS / Linux 三端行尾一致，避免中文文档在 diff 里整文件爆掉
+# ============================================================
+
+# 文本文件统一按平台自动识别，检出时不改动仓库内容
+* text=auto
+
+# 网页与文档类：检出时强制 LF，保证本地起服务器的表现与他人一致
+*.html  text eol=lf
+*.css   text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.jsonc text eol=lf
+*.txt   text eol=lf
+*.csv   text eol=lf
+*.svg   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+
+# Office / PDF / 图片 / 媒体：按二进制处理，不做 diff、不做换行转换
+*.docx  binary
+*.xlsx  binary
+*.pptx  binary
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.zip   binary
+*.mp4   binary
+*.wav   binary
+
+# 演示视频体积大，交给 Git LFS 需另行配置；当前策略是 .gitignore 直接排除，不追踪

@@ -1,0 +1,107 @@
+# ============================================================
+# 《通知猎人 NoticeHunter》 .gitignore
+# 按四类风险分组：密钥 / 隐私素材 / 运行时状态 / 不该上仓库的交付物
+# 硬性约束见 AGENTS.md 第 3 节
+# ============================================================
+
+
+# ---------- 1. 密钥与凭据（绝对禁止进仓库）----------
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.*
+credentials.*
+*apikey*
+*api_key*
+*APIKEY*
+*API_Key*
+access_token*
+*secret*.json
+
+
+# ---------- 2. 隐私素材（通知要求：真实通知、群聊截图、同学姓名必须打码）----------
+# 未打码的原始素材一律留在本地。
+# 演示用样例请放 prototype/samples/，内容必须是模拟数据或已打码文件。
+raw/
+_raw/
+raw素材/
+原始素材/
+未打码/
+群聊/
+群聊截图/
+截图原图/
+*聊天记录*
+*.eml
+*.mbox
+
+
+# ---------- 3. 竞赛通知原件 ----------
+# 本地只读的规则真相源，不是作品交付物；且可能为校内未公开文件，默认不上传。
+# 若需要把规则文件一起存进私有仓库，删掉下面这一行即可。
+关于举办杭州电子科技大学第二届AIGC应用创新大赛的通知.docx
+
+
+# ---------- 4. 智能体 / 本地工具运行时状态 ----------
+.mimocode/
+*.cron-lock
+scheduled_tasks.json
+ReplaySoftware/
+*.tmp
+
+
+# ---------- 5. 大媒体与录屏中间产物 ----------
+# 演示视频（MP4 ≤100MB）经课程平台提交，不走 GitHub——GitHub 单文件超限且不适合当视频托管。
+# 如需把最终成品放进仓库：git add -f video/成品/xxx.mp4
+*.mp4
+*.mov
+*.mkv
+*.flv
+*.wmv
+*.webm
+*.wav
+*.mp3
+*.aac
+*.prproj
+*.veg
+*.aep
+
+
+# ---------- 6. Office 临时锁文件 ----------
+~$*.docx
+~$*.pptx
+~$*.xlsx
+~$*.xls
+~$*.ppt
+
+
+# ---------- 7. 系统与编辑器垃圾 ----------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+desktop.ini
+.DS_Store
+._*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+
+# ---------- 8. 本地服务器、缓存与日志 ----------
+*.log
+logs/
+.cache/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+node_modules/
+dist/
+build/
+out/
+*.pid
