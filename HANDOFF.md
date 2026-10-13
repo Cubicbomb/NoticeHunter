@@ -9,8 +9,9 @@
 
 ## 1. 当前位置
 
-- **阶段**：立项准备。已读完竞赛通知、已定推荐方向、已建交接体系与 GitHub 仓库就绪。**尚未开始任何产品开发。**
-- **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`、`.gitignore`、`.gitattributes`、`prompts/README.md`、`prototype/samples/`（3 份模拟样例 + stdlib 生成的 `.docx` 测试夹具）；已 `git init`（分支 `main`，**尚未提交**）。
+- **阶段**：立项准备。已读完竞赛通知、已定推荐方向、已建交接体系，仓库已推送 GitHub。**尚未开始任何产品开发。**
+- **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`、`.gitignore`、`.gitattributes`、`prompts/README.md`、`prototype/samples/`（3 份模拟样例 + stdlib 生成的 `.docx` 测试夹具）。
+- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`，分支 `main`，已与 `origin/main` 同步。
 - **还没有**：
   - 团队成员名单、专业背景、分工
   - 指导老师
@@ -105,7 +106,7 @@
 （空。只读操作无需登记。）
 
 ### 待办
-- [ ] **首次提交**：文件清单已确认（11 个文件，`git status` 干净），**等用户明确确认后**再 `git add` / `git commit`（`AGENTS.md` 第 3 节：未经明确要求不 commit）
+- [ ] **后续提交习惯**：先更新 `HANDOFF.md` 变更日志，再 `git add` / `commit` / `push`，避免提交内容与交接状态脱节
 - [ ] **团队确认 D-001 / D-002**，确认后把状态改为「已定」——在此之前不要投入原型开发（R-02）
 - [ ] **向任课老师确认 R-01**：本课程第 5/11/12/15 周对应的具体日期、提交平台与提交格式要求
 - [ ] 确定团队成员名单、专业背景、分工（建议：2 人前端 / 1 人解析与 AI 调用 / 1 人 Prompt 与测试 / 1 人 PPT 视觉 / 1 人文档统筹）
@@ -126,6 +127,7 @@
 - [x] 2026-10-13 仓库就绪：写 `.gitignore` / `.gitattributes` / `README.md`，`git init`（分支 `main`）
 - [x] 2026-10-13 用 `git check-ignore -v` 逐项实测忽略规则（结果见第 6 节）
 - [x] 2026-10-13 建 `prototype/samples/`：2 份 `.txt` 模拟通知 + 1 份 stdlib 生成的 `.docx` 测试夹具 + 数据说明
+- [x] 2026-10-13 首次提交并推送 GitHub：`Cubicbomb/NoticeHunter`，main 分支，并入远端 MIT `LICENSE`
 
 ### 阻塞
 - **R-01** 信息阻塞：具体提交日期与平台未知，排期无法定死
@@ -155,6 +157,7 @@
 | 2026-10-13 21:41 | 主智能体 | 实测工具链：python 3.14.7、node v24.19.0、`python -m http.server` 返回 HTTP 200 | 已实际启动服务并请求验证后关闭 |
 | 2026-10-13 22:15 | 主智能体 | 仓库就绪：写 `.gitignore` / `.gitattributes` / `README.md`；`git init`（分支 `main`）；建 `prototype/samples/`（2 份 `.txt` 模拟通知 + stdlib 生成的 `.docx` 夹具） | `git check-ignore -v` 逐项实测：`.env`、`*secret*.json`、竞赛通知原件、`.mimocode/`、`raw/`、`群聊/`、`*.mp4`、`Thumbs.db`、`~$*.docx`、`__pycache__/`、`node_modules/` 均命中忽略；`README.md`、`.gitignore`、`prototype/samples/*` 正常可追踪；`git status --porcelain` 共 11 个待提交文件 |
 | 2026-10-13 22:15 | 主智能体 | **回滚**：删除立项前写死的 `docs/` `slides/` `video/` 规划类文档（项目文档大纲、测试与迭代记录、PPT 页数规划、视频分镜）；撤回 `py` 启动器相关改动（`python` 问题已由用户修复） | 全库检索确认已无 `py -m` / `py -c` / `py 启动器` 残留；目录结构与 `README.md` 描述一致 |
+| 2026-10-13 22:31 | 主智能体 | 首次提交并推送 GitHub：`git add -A` → commit `304a1e5` → 以 `--allow-unrelated-histories` 并入远端 MIT `LICENSE`（合并提交 `909892d`）→ `push -u origin main` | 远端 `refs/heads/main` 校验为 `909892d`；本地 `main...origin/main` 无 ahead/behind；工作区干净。MIT 协议已登记为 R-09 |
 
 ---
 
@@ -168,3 +171,4 @@
 - **R-06 · 本机环境**：无 `python-docx`、`MIMO_PYTHON` 未设置。读 docx 需用 PowerShell 解压 `word/document.xml`，**不要 pip 安装依赖**。原型的文档解析能力也不能依赖本机 Python 库——必须在浏览器里实现。
 - **R-07 · 多智能体撞车**：见 `AGENTS.md` 第 6 节单一写者规则。不登记就改他人在办文件，会造成静默覆盖，且双方都以为成功。
 - **R-08 · 规则口径漂移**：任何转述过的赛程与评分权重都可能失真。**引用规则时回到 docx 原文核对**，不要引用对话里的转述。
+- **R-09 · MIT LICENSE 的复用风险**：GitHub 建仓时自带 MIT 协议（Copyright 2026 Cubicbomb），允许他人自由复制、修改、再授权甚至商用。与竞赛「严禁抄袭」并存时需自行权衡：保留 = 他人可复用本项目；不希望被复用则删除 `LICENSE` 或改为限制性协议。**需用户决定，不要擅自改动。**
