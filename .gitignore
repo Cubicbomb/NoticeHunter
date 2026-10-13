@@ -105,3 +105,6 @@ dist/
 build/
 out/
 *.pid
+
+# playwright-cli 会话快照（本地临时产物）
+.playwright-cli/
