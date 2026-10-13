@@ -1,0 +1,40 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - heading "通知猎人" [level=1] [ref=e4]
+    - generic [ref=e5]: NoticeHunter
+    - generic [ref=e6]: 离线可用 · 零依赖
+    - paragraph [ref=e7]: 把校园通知、课程大纲、群聊里的碎片要求，转成「谁 / 什么时候前 / 交什么 / 交到哪」的可执行行动清单。
+  - generic [ref=e8]:
+    - heading "1 载入通知" [level=2] [ref=e9]:
+      - generic [ref=e10]: "1"
+      - text: 载入通知
+    - generic [ref=e11] [cursor=pointer]:
+      - strong [ref=e12]: 把 .txt 或 .docx 拖到这里
+      - text: 也可以点击选择文件，支持一次选多个
+    - generic [ref=e13]:
+      - button "选择文件" [ref=e14] [cursor=pointer]
+      - button "用样例演示" [ref=e15] [cursor=pointer]
+      - button "清空会话" [ref=e16] [cursor=pointer]
+  - generic [ref=e17]:
+    - heading "2 原文" [level=2] [ref=e18]:
+      - generic [ref=e19]: "2"
+      - text: 原文
+    - paragraph [ref=e22]: 还没有载入内容。先拖入一份通知，或点「用样例演示」。
+  - generic [ref=e23]:
+    - heading "3 待确认" [level=2] [ref=e24]:
+      - generic [ref=e25]: "3"
+      - text: 待确认
+    - paragraph [ref=e27]:
+      - text: 抽取结果会出现在这里。
+      - strong [ref=e28]: 低置信度的条目会标黄
+      - text: ，必须人工确认后才会进入行动清单。
+  - generic [ref=e29]:
+    - heading "4 行动清单" [level=2] [ref=e30]:
+      - generic [ref=e31]: "4"
+      - text: 行动清单
+    - list
+    - paragraph [ref=e32]: 还没有已确认的行动项。
+    - generic [ref=e33]:
+      - button "导出 .txt" [disabled] [ref=e34]
+      - button "复制到剪贴板" [disabled] [ref=e35]
+  - contentinfo [ref=e36]: 本页面不发起任何网络请求，断网可用。刷新后会话清空。演示样例均为模拟数据，不含真实个人信息。
