@@ -9,7 +9,8 @@
 
 ## 1. 当前位置
 
-- **阶段**：**MVP 原型已合并进 `main` 并推送 GitHub**，通过两轮独立评审；已做收尾清理（开发用 worktree 与本地功能分支已移除）。
+- **阶段**：**MVP 原型已合并进 `main` 并推送 GitHub**，通过两轮独立评审；已做收尾清理。**第二轮迭代（LLM 主抽取 + 规则兜底）的 spec 已写完，等用户批准，未开工、未提交。**
+- **进行中工作区**：`.worktrees/noticehunter-llm`，分支 `feat/noticehunter-llm`，基于 `origin/main` = `454668a`，当前零提交。
 - **工作区**：主目录 checkout 在 `main`，与 `origin/main` 同步（`d072366`），工作区干净。`.worktrees/` 已写入根 `.gitignore`。
 - **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`、`.gitignore`、`.gitattributes`、`prompts/README.md`、`prototype/samples/`（3 份模拟样例 + stdlib 生成的 `.docx` 测试夹具）、**`prototype/index.html` 单文件 MVP**、**`prototype/verify.cjs` 浏览器验收脚本**、`docs/compose/spec/noticehunter-mvp.md` 功能规格。
 - **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`，`main` 分支。
@@ -109,14 +110,36 @@
 - **理由**：本条是 `AGENTS.md` 第 3 节第 5 条「禁止建分支，除非用户在当前对话中明确要求」的**显式授权**，不是对该条的推翻——合并回 `main` 后该条继续有效。好处是 `main` 始终保持可交付状态，多智能体并行不互踩。
 - **覆盖说明**：`compose-next` 默认 spec 路径为 `docs/compose/spec/<feature>.md`，项目未规定 spec 路径，故沿用默认位置（已记录在该 spec 文件头部）。
 
+### D-007 · 抽取引擎反转：LLM 主抽取 + 规则兜底（推翻 D-005）
+- **日期**：2026-10-14 ｜ **状态**：已定（用户在 Grill 环节选择）
+- **决策**：结构化抽取改为**大模型为主**，规则层降级为三用：① 候选段落前置筛选 ② 字段校验与修正（`due` 格式、`sourceIndex` 范围）③ 无 Key / 断网时的离线兜底。
+- **推翻关系**：本条**推翻 D-005「MVP 只做规则式抽取，不接大模型」**。D-005 按「只增不改」原则保留不删。
+- **理由**：D-005 当初的动机（零依赖、断网、可测）依然有效，故不删除规则层，只改变主次。但正则作为产品核心智能已实测出硬伤——「谁」被判成签字人而非办事人、动作字段剥出残渣、「考试前一天」「详见附件」类表述无解。同时决赛评分「技术应用 25%」考的是 AIGC 工具的综合深入运用，运行时完全不用 AI 是吃亏的。
+- **工作区**：沿用 D-006 的模式，新开 `.worktrees/noticehunter-llm` + 分支 `feat/noticehunter-llm`（基于 `origin/main` = `454668a`）。本次未重新申请建分支授权，直接复用 D-006 既定约定。
+
+### D-008 · 本轮迭代范围：只做 LLM 抽取
+- **日期**：2026-10-14 ｜ **状态**：已定（用户在 Grill 环节选择）
+- **决策**：本轮**只实现 LLM 主抽取 + 规则兜底**。**deadline 汇总功能与交互体验优化顺延到下一迭代**，已登记在第 4 节待办，不许丢失。
+- **理由**：用户主动收敛范围。第 12 周硬截止，材料类产出占预赛 87.5 分，本轮先把抽取层做扎实。
+
+### D-009 · 路线复核：维持赛题一，否决 skill 路线
+- **日期**：2026-10-14 ｜ **状态**：已定（用户在 Grill 环节选择）
+- **决策**：**维持 D-001（赛题一 · AI 辅助开发 · 创意产品原型），不改投赛题二、不做成 skill。**
+- **背景**：用户主动提出「是不是可以走第二个参赛路线，即做成一个 skill」。经查竞赛附件一赛题二原文确实允许「可运行、可重复使用的技能 Skills 或 AI 智能体」，推荐工具也含 **WorkBuddy（本机已装）**，故该路线可行、并非不可行。
+- **否决理由**：① 竞赛原文是「参赛团队**可任选其一**」，换赛道等于推翻 D-001；② 已通过两轮评审的 943 行网页原型在赛题二口径下不再是主交付物；③ D-001 当初否决赛题二的「Coze/Dify 同质化」顾虑依然成立；④ skill 要依赖对方运行时录屏，翻车概率高于零依赖断网可跑的网页。
+- **保留价值**：若后续材料充裕，skill 可作为竞赛允许的「**可选附加材料**」补充，不必换主赛道。
+
 ---
 
 ## 4. 任务板
 
 ### 进行中（文件占用登记：文件 → 智能体 → 开始时间）
-（空。只读操作无需登记。）
+- `docs/compose/spec/noticehunter-llm.md`（位于 `.worktrees/noticehunter-llm`）→ 主智能体 → 2026-10-14 → **状态：`designed`，已写完，等用户批准，尚未提交**
 
 ### 待办
+- [ ] **用户批准 `noticehunter-llm` spec 后开工**：文件在 `.worktrees/noticehunter-llm/docs/compose/spec/noticehunter-llm.md`，7 个任务，批准前**不要动代码**
+- [ ] **下一迭代（D-008 顺延，勿丢）· deadline 汇总**：按日期聚合已确认条目、倒计时天数、同日分组、最近截止优先
+- [ ] **下一迭代（D-008 顺延，勿丢）· 交互优化**：待确认卡片计数与状态筛选、丢弃可撤销、待确认与清单分屏减少来回滚动、原文区可展开
 - [ ] **后续提交习惯**：先更新 `HANDOFF.md` 变更日志，再 `git add` / `commit` / `push`，避免提交内容与交接状态脱节
 - [ ] **向任课老师确认 R-01**：本课程第 5/11/12/15 周对应的具体日期、提交平台与提交格式要求
 - [ ] 确定团队成员名单、专业背景、分工（建议：2 人前端 / 1 人解析与 AI 调用 / 1 人 Prompt 与测试 / 1 人 PPT 视觉 / 1 人文档统筹）
@@ -182,6 +205,7 @@
 | 2026-10-14 12:45 | 主智能体 | 修复 5 项 minor（`6bfb7ee`）：`hasMarker` 要求标记紧跟标点、`timeNear` 不跨句、动词改按段落判定、恢复丢弃断言等 | 复测 **29 PASS / 0 FAIL**，含 `file://` 直开、损坏 `.docx` 中文提示、空清单提示、真实下载事件、控制台零报错 |
 | 2026-10-14 15:46 | 主智能体 | **git 收口**：主目录原为 detached HEAD（停在 `c46c4db`），先 `git checkout main`；`--no-ff` 合并功能分支（`137d6d0`）；根 `.gitignore` 追加 `.worktrees/`（`d072366`）；`push origin main` 与 `push -u origin feat/noticehunter-mvp`；`git worktree remove` 移除开发工作区；`git branch -d` 删除已合并的本地分支 | `git check-ignore -v .worktrees/noticehunter-mvp/prototype/index.html` 命中 `.gitignore:116`；`git status --porcelain -uall` 全空；`HEAD` == `origin/main` == `d072366`（IN SYNC）；`prototype/index.html`、spec、`prompts/P-001` 均在位。**WorkBuddy 的 worktree 与 `workbuddy/main-1927306e` 分支未触碰** |
 | 2026-10-14 15:53 | 主智能体 | 删除远端冗余分支 `origin/feat/noticehunter-mvp`（用户在对话中标注「可以」明确授权，且属不可逆操作）；随后 `git fetch --prune` 清理过期远程引用 | 删前安全校验：`git merge-base --is-ancestor 2a0bea2 main` 退出码 0、`git log main..2a0bea2` 为空（无提交遗留在 main 之外）；删后 `git ls-remote --heads origin` **仅剩 `refs/heads/main` = `7f55822`**；`git status -sb -uall` 干净，本地与 `origin/main` 同步。WorkBuddy 分支仍在，未动 |
+| 2026-10-14 16:28 | 主智能体 | 第二轮迭代 Grill：用户提出「能否做成 skill」，经查赛题二原文确实允许 Skills 且 WorkBuddy 本机已装；最终定为 **D-007 抽取引擎反转（LLM 主 + 规则兜底，推翻 D-005）**、**D-008 本轮只做 LLM 抽取（deadline 汇总与交互优化顺延）**、**D-009 维持赛题一、否决 skill 路线**。按 D-006 既定约定开 `.worktrees/noticehunter-llm` + `feat/noticehunter-llm` | `git worktree list` 确认三个工作区并存；`git status --porcelain -uall` 为空（`.worktrees/` 被根 `.gitignore:116` 命中，无泄漏）；新 worktree `git status -sb` 干净、基于 `454668a`。**spec 已写完 `status: designed`，等用户批准，未提交、未动代码** |
 
 ---
 
