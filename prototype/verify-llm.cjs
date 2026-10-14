@@ -19,6 +19,7 @@ const STUB = 'http://127.0.0.1:8791';
 const SAMPLES = path.join(__dirname, 'samples');
 const SECRET = 'sk-test-SECRET-XYZ-98765';
 const NODATE = path.join(__dirname, 'test', '_nodate.txt');
+const BIGFILE = path.join(__dirname, 'test', '_big65.txt');
 
 const results = [];
 function check(name, cond, detail) {
@@ -146,6 +147,18 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
     cardsAfterFallback > 0 && ruleBadges === cardsAfterFallback,
     'rule=' + ruleBadges + '/' + cardsAfterFallback);
 
+  /* T7：故障回退后必须仍能走通「确认 → 清单 → 导出」 */
+  await page.locator('#reviewList button[data-act="confirm"]').first().click();
+  await page.waitForTimeout(300);
+  const faultExport = await page.evaluate(
+    () => (typeof buildExport === 'function' ? buildExport() : null));
+  const dlFaultP = page.waitForEvent('download');
+  await page.click('#export');
+  const dlFault = await dlFaultP;
+  check('T7 故障回退后仍可确认并导出（含出处）',
+    !!faultExport && faultExport.indexOf('出处：') >= 0 && /\.txt$/.test(dlFault.suggestedFilename()),
+    (faultExport || '(null)').split('\n').slice(0, 3).join(' / '));
+
   /* ===== T3 · bad-json 回退 ===== */
   await ctl({ mode: 'bad-json' });
   await page.click('#llmRetry');
@@ -218,16 +231,45 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
   check('T6 重试按钮在空闲时可用',
     !(await page.locator('#llmRetry').isDisabled()), 'disabled=' + await page.locator('#llmRetry').isDisabled());
 
-  /* ===== T4 · 无候选段落不发请求 ===== */
+  /* ===== T4 · 无候选段落不发请求（验收措辞已于 spec 中修订为可证伪四条）===== */
   await ctl({ reset: true, mode: 'ok' });
   const before = (await stubState()).requests;
+  const chipsBefore = await page.locator('#sources .src-chip').count();
+  const itemsBefore = await page.evaluate(() => state.items.length);
   await page.setInputFiles('#file', NODATE);
   await page.waitForTimeout(900);
   const after = (await stubState()).requests;
-  check('T4 无日期段落的文件不触发任何请求',
-    after === before, 'before=' + before + ' after=' + after);
-  check('T4 该文件走规则路径后界面不崩',
-    (await page.locator('#reviewList').count()) > 0, '');
+  const chipsAfter = await page.locator('#sources .src-chip').count();
+  const itemsAfter = await page.evaluate(() => state.items.length);
+  const nodateItems = await page.evaluate(() =>
+    state.items.filter((x) => String(x.sourceName).indexOf('_nodate') >= 0).length);
+
+  check('T4 无日期文件已载入且 stub 请求计数不变',
+    chipsAfter > chipsBefore && after === before,
+    'chips ' + chipsBefore + '→' + chipsAfter + ' / requests ' + before + '→' + after);
+  check('T4 该文件产生 0 条候选条目',
+    nodateItems === 0, 'items=' + nodateItems);
+  check('T4 其余文件条目不受影响（总数不变）',
+    itemsAfter === itemsBefore, itemsBefore + '→' + itemsAfter);
+
+  /* ===== S2.5 · 分批顺序发送（65 条候选 > 上限 60 → 必须 2 次请求，不是截断成 1 次）===== */
+  const bigLines = [];
+  for (let i = 1; i <= 65; i++) {
+    bigLines.push('请于 2027 年 3 月 ' + ((i % 28) + 1) + ' 日前将第 ' + i + ' 号材料交至测试地点。');
+  }
+  fs.writeFileSync(BIGFILE, bigLines.join('\n'), 'utf8');
+  await page.click('#clear');
+  await page.waitForTimeout(200);
+  await ctl({ reset: true, mode: 'ok' });
+  const r0 = (await stubState()).requests;
+  await page.setInputFiles('#file', BIGFILE);
+  await page.waitForTimeout(3000);
+  const r1 = (await stubState()).requests;
+  const bigItems = await page.evaluate(() => state.items.length);
+  check('S2.5 65 条候选分批顺序发送为 2 次请求（而非静默截断）',
+    r1 - r0 === 2, 'requests delta=' + (r1 - r0));
+  check('S2.5 分批后条目未丢失（stub 每批 1 条 → 共 2 条）',
+    bigItems === 2, 'items=' + bigItems);
 
   /* ===== T2 · 刷新后配置清空 ===== */
   await page.reload({ waitUntil: 'load' });
@@ -255,6 +297,7 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
 
   await browser.close();
   fs.unlinkSync(NODATE);
+  if (fs.existsSync(BIGFILE)) fs.unlinkSync(BIGFILE);
 
   console.log('==== LLM 路径验证结果 ====');
   console.log(results.join('\n'));

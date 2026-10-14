@@ -326,7 +326,8 @@ const SAMPLES = [
 const state = {
   sources: [], items: [], seq: 0, highlight: null,
   extracting: false,     // 是否有 AI 请求在途
-  lastFallback: null     // 最近一次回退原因；null 表示未回退
+  lastFallback: null,    // 最近一次回退原因；null 表示未回退
+  sessionId: 0           // 清空会话时自增，用于丢弃在途请求的过期结果
 };
 
 /* ===== LLM 配置（只存内存：不写 localStorage/sessionStorage、不进 URL、不进 DOM 属性）===== */
@@ -476,6 +477,7 @@ async function loadTxtFile(file) {
 async function handleFiles(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
+  if (state.extracting) { toast('AI 抽取进行中，请稍候再载入'); return; }
   let ok = 0;
   for (const f of files) {
     const lower = f.name.toLowerCase();
@@ -509,19 +511,24 @@ const LLM_SYSTEM_PROMPT = [
 
 /* 模型常把 JSON 包在 ```json 围栏里，先剥掉再解析 */
 function stripFences(s) {
-  const t = String(s).trim();
-  const m = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(t);
-  return m ? m[1] : t;
+  let t = String(s).trim();
+  const closed = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(t);
+  if (closed) return closed[1];
+  const open = /^```(?:json)?\s*/i.exec(t);
+  // 未闭合围栏：去掉开头标记并尝试去掉残余收尾，避免整段结果被丢弃
+  if (open) t = t.slice(open[0].length).replace(/\s*```\s*$/, '');
+  return t;
 }
 
 /* 候选段落前置筛选（spec S2.5）：只把含日期或模糊时间词的段落送给模型，
-   规则保证不漏召回，模型负责理解语义。无候选则不发请求。 */
+   规则保证不漏召回，模型负责理解语义。无候选则不发请求。
+   超过单次上限的部分由 extractSource 分批顺序发送，此处不做截断。 */
 function selectCandidateParagraphs(paragraphs) {
   const out = [];
   paragraphs.forEach((text, i) => {
     if (detectDue(text)) out.push({ index: i + 1, text: text });
   });
-  return out.slice(0, LLM_MAX_PARAS);
+  return out;
 }
 
 /* spec S2.3 调用契约：失败一律抛出带具体原因的中文 Error，由调用方回退 */
@@ -539,8 +546,11 @@ async function callLLM(candidates, fileName) {
     ]
   };
 
+  /* 超时计时器覆盖到「读完响应体」为止——否则已返回头但正文挂起时会永远卡住 */
+  const timeoutMsg = 'AI 请求超时（' + (LLM_TIMEOUT_MS / 1000) + ' 秒），已回退规则式抽取';
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), LLM_TIMEOUT_MS);
+
   let res;
   try {
     res = await fetch(llm.base.replace(/\/+$/, '') + '/chat/completions', {
@@ -551,18 +561,22 @@ async function callLLM(candidates, fileName) {
     });
   } catch (e) {
     clearTimeout(timer);
-    if (e && e.name === 'AbortError') {
-      throw new Error('AI 请求超时（' + (LLM_TIMEOUT_MS / 1000) + ' 秒），已回退规则式抽取');
-    }
+    if (e && e.name === 'AbortError') throw new Error(timeoutMsg);
     throw new Error('AI 请求未发出（网络错误），已回退规则式抽取');
   }
-  clearTimeout(timer);
-
-  if (!res.ok) throw new Error('AI 接口返回 HTTP ' + res.status + '，已回退规则式抽取');
+  if (!res.ok) {
+    clearTimeout(timer);
+    throw new Error('AI 接口返回 HTTP ' + res.status + '，已回退规则式抽取');
+  }
 
   let data;
   try { data = await res.json(); }
-  catch (e) { throw new Error('AI 接口响应不是合法 JSON，已回退规则式抽取'); }
+  catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') throw new Error(timeoutMsg);
+    throw new Error('AI 接口响应不是合法 JSON，已回退规则式抽取');
+  }
+  clearTimeout(timer);
 
   const content = data && data.choices && data.choices[0] &&
     data.choices[0].message && data.choices[0].message.content;
@@ -575,6 +589,7 @@ async function callLLM(candidates, fileName) {
   catch (e) { throw new Error('AI 返回的内容无法解析为 JSON，已回退规则式抽取'); }
 
   if (!Array.isArray(arr)) throw new Error('AI 返回的不是数组，已回退规则式抽取');
+  if (!arr.length) throw new Error('AI 返回了空数组，已回退规则式抽取');   // spec S2.3
   return arr;
 }
 
@@ -608,7 +623,13 @@ function mapLLMEntries(raw, paragraphs, name, srcIdx) {
       reasons.push('AI 返回的截止时间格式非法，已由规则修正或置空');
     }
 
-    let confidence = (r.confidence === 'high' || r.confidence === 'low') ? r.confidence : 'low';
+    let confidence;
+    if (r.confidence === 'high' || r.confidence === 'low') {
+      confidence = r.confidence;
+    } else {
+      confidence = 'low';
+      reasons.push('AI 返回的置信度非法，已回落为低置信度');   // spec S2.4
+    }
     if (!due) confidence = 'low';
 
     items.push({
@@ -836,6 +857,7 @@ function addSource(name, paragraphs) {
 async function extractSource(srcIdx) {
   const src = state.sources[srcIdx];
   if (!src) return;
+  const sid = state.sessionId;      // 会话被清空后，在途请求不得把条目塞进新会话
 
   // 重试时只替换仍待确认的条目，不破坏用户已确认 / 已完成的工作
   state.items = state.items.filter((x) => !(x.srcIdx === srcIdx && x.status === 'pending'));
@@ -845,18 +867,27 @@ async function extractSource(srcIdx) {
   renderAll();
   toast('已载入 ' + src.name + '（' + src.paragraphs.length + ' 段）');
 
+  const alive = () => state.sessionId === sid;
   try {
     if (!llmConfigured()) {
-      state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+      if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
       return;
     }
     const candidates = selectCandidateParagraphs(src.paragraphs);
     if (!candidates.length) {
       // 无截止时间相关段落 → 不发任何请求（spec S2.5），直接规则式
-      state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+      if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
       return;
     }
-    const raw = await callLLM(candidates, src.name);
+    /* spec S2.5：单次请求不超过 LLM_MAX_PARAS，超出分批顺序发送，不截断 */
+    const chunks = [];
+    for (let i = 0; i < candidates.length; i += LLM_MAX_PARAS) {
+      chunks.push(candidates.slice(i, i + LLM_MAX_PARAS));
+    }
+    let raw = [];
+    for (const c of chunks) raw = raw.concat(await callLLM(c, src.name));
+    if (!alive()) return;
+
     const mapped = mapLLMEntries(raw, src.paragraphs, src.name, srcIdx);
     if (!mapped.items.length) throw new Error('AI 返回的条目经校验后全部被剔除，已回退规则式抽取');
     state.items.push(...mapped.items);
@@ -864,6 +895,7 @@ async function extractSource(srcIdx) {
       toast('AI 返回的 ' + mapped.dropped + ' 条已剔除（来源编号非法或字段缺失）');
     }
   } catch (e) {
+    if (!alive()) return;
     state.lastFallback = e.message;
     state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
     toast(e.message, 6500);
@@ -1124,6 +1156,7 @@ document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => e.preventDefault());
 
 elSample.addEventListener('click', async () => {
+  if (state.extracting) { toast('AI 抽取进行中，请稍候'); return; }
   let added = 0;
   for (const s of SAMPLES) {
     if (state.sources.some((x) => x.name === s.name)) continue;
@@ -1138,6 +1171,7 @@ elSample.addEventListener('click', async () => {
 });
 
 elClear.addEventListener('click', () => {
+  state.sessionId++;              // 让在途 AI 请求的结果作废
   state.sources = [];
   state.items = [];
   state.highlight = null;
@@ -1192,7 +1226,7 @@ async function retryAI() {
   if (!llmConfigured()) { toast('尚未配置，当前使用规则式抽取'); return; }
   if (!state.sources.length) { toast('还没有已载入的文件'); return; }
   if (state.extracting) { toast('AI 抽取进行中，请稍候'); return; }
-  toast('正在按 AI 重新抽取，已确认的条目会保留…');
+  toast('正在按 AI 重新抽取：已确认的条目会保留；仍待确认的条目会被重新生成，未保存的手动修改会丢失', 6500);
   for (let i = 0; i < state.sources.length; i++) await extractSource(i);
   renderAll();
 }

@@ -163,7 +163,9 @@ LLM 输出非确定性，不能靠真模型做断言。方案：
 - [ ] T1: 本地 stub OpenAI 兼容服务 — acceptance: `node prototype/test/fake-llm-server.js` 可启动，`POST /chat/completions` 在 `ok` 模式返回固定抽取 JSON，在 `http-500` / `bad-json` / `timeout` 三种模式分别返回 500、非法 JSON、挂起；产品代码不引用该文件 (covers: S2.10)
 - [ ] T2: 设置面板与内存配置 — acceptance: 填入 base / key / model 后页面刷新，三项全部清空；在 `document.documentElement.outerHTML` 与 `localStorage` 中检索不到所填 key；缺任一项时设置面板提示「尚未配置，当前使用规则式抽取」 (covers: S2.2)
 - [ ] T3: AI 调用层（OpenAI 兼容 + 超时 + 容错）— acceptance: 指向 stub `ok` 模式时条目来自 stub 内容且 `extractor==='ai'`；依次切到 `http-500` / `bad-json` / `timeout`，各触发一次含具体原因的 toast，页面无未捕获异常 (covers: S2.1, S2.3; depends: T1, T2)
-- [ ] T4: 候选段落前置筛选 — acceptance: 构造一份不含任何日期与模糊时间词的文件，点「重新尝试 AI 抽取」后 stub 的请求计数仍为 0，且该文件仍以规则模式产出结果 (covers: S2.5; depends: T3)
+- [ ] T4: 候选段落前置筛选 — acceptance: 构造一份不含任何日期与模糊时间词的文件载入并点「重新尝试 AI 抽取」后，stub 的请求计数不增加（0 次新增）、该文件产生 0 条候选条目、其余已载入文件的条目不受影响、页面无未捕获异常 (covers: S2.5; depends: T3)
+
+  > **措辞修订（2026-10-14，经独立评审判定）**：原验收写「该文件仍以规则模式产出结果」，但规则层同样以 `detectDue` 为前提，无日期文件在**任何模式下都产不出条目**，该句不可满足。改为可证伪的四条断言；实现无需修改。
 - [ ] T5: LLM 输出映射与规则校验 — acceptance: stub 返回合法条目 → 进入待确认区且 `extractor==='ai'`；stub 返回非法 `due` → 被规则层从 `dueRaw` 修正或降级为 `null`+`low`；stub 返回越界 `sourceIndex` → 该条被丢弃并提示剔除条数，出处跳转不指向错误段落 (covers: S2.4, S2.8; depends: T3)
 - [ ] T6: 模式指示与手动重试 — acceptance: 未配置时页头显示「规则式抽取（兜底）」，配置后变为「AI 抽取」；卡片与清单条目显示 `AI` / `规则式` 来源标注；配置后可反复点「重新尝试 AI 抽取」重新发起 (covers: S2.6, S2.7; depends: T3)
 - [ ] T7: 规则兜底贯通与回归 — acceptance: 不配置任何 key 时，`noticehunter-mvp.md` 原有 **29 项验收全部保持 PASS**，且浏览器网络面板无外部请求；配置后按 T3 的三种故障各跑一遍，均自动回退规则模式并走通「确认 → 清单 → 导出」 (covers: S2.6, S2.8, S2.9, S2.10; depends: T4, T5, T6)
