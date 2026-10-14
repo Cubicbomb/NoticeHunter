@@ -9,8 +9,8 @@
 
 ## 1. 当前位置
 
-- **阶段**：**MVP 原型已实现并通过独立评审**，在功能分支上待合并。仓库已推送 GitHub（`main`）。
-- **当前工作区**：`.worktrees/noticehunter-mvp`，分支 `feat/noticehunter-mvp`，**领先 `origin/main` 5 个提交，尚未合并、尚未推送**。
+- **阶段**：**MVP 原型已合并进 `main` 并推送 GitHub**，通过两轮独立评审；已做收尾清理（开发用 worktree 与本地功能分支已移除）。
+- **工作区**：主目录 checkout 在 `main`，与 `origin/main` 同步（`d072366`），工作区干净。`.worktrees/` 已写入根 `.gitignore`。
 - **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`、`.gitignore`、`.gitattributes`、`prompts/README.md`、`prototype/samples/`（3 份模拟样例 + stdlib 生成的 `.docx` 测试夹具）、**`prototype/index.html` 单文件 MVP**、**`prototype/verify.cjs` 浏览器验收脚本**、`docs/compose/spec/noticehunter-mvp.md` 功能规格。
 - **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`，`main` 分支。
 - **还没有**：
@@ -117,7 +117,7 @@
 （空。只读操作无需登记。）
 
 ### 待办
-- [ ] **合并与推送**：`feat/noticehunter-mvp` 领先 `origin/main` 5 个提交，等用户确认后再合并回 `main` 并推送
+- [ ] **远端功能分支**：`origin/feat/noticehunter-mvp` 已推送，本地已删除，属「已合并的冗余分支」。要彻底清理就 `git push origin --delete feat/noticehunter-mvp` —— 删远端分支属不可逆操作，**等用户确认**
 - [ ] **后续提交习惯**：先更新 `HANDOFF.md` 变更日志，再 `git add` / `commit` / `push`，避免提交内容与交接状态脱节
 - [ ] **向任课老师确认 R-01**：本课程第 5/11/12/15 周对应的具体日期、提交平台与提交格式要求
 - [ ] 确定团队成员名单、专业背景、分工（建议：2 人前端 / 1 人解析与 AI 调用 / 1 人 Prompt 与测试 / 1 人 PPT 视觉 / 1 人文档统筹）
@@ -143,6 +143,8 @@
 - [x] 2026-10-13 浏览器验收 `prototype/verify.cjs`：**29 PASS / 0 FAIL**（含 `file://` 直开、损坏文件、空清单、离线无异常）
 - [x] 2026-10-13 独立评审两轮：首轮 3 项 critical → 全部修复；复审确认**无 critical**
 - [x] 2026-10-13 修复评审 6 项 minor 中的 5 项并复测通过（第 9 项为 spec 明确要求的噪声卡片，保留）
+- [x] 2026-10-14 用 `prototype/shoot.cjs` 实跑主流程并出 4 张演示截图 + 导出文本（`output/` 已忽略）
+- [x] 2026-10-14 **git 收口**：修 detached HEAD → `--no-ff` 合并功能分支进 `main`（`137d6d0`）→ 根 `.gitignore` 忽略 `.worktrees/`（`d072366`）→ 推送 `main` 与 `feat/noticehunter-mvp` → 移除开发 worktree → 用 `git branch -d` 删掉已合并的本地功能分支
 
 ### 阻塞
 - **R-01** 信息阻塞：具体提交日期与平台未知，排期无法定死
@@ -153,9 +155,9 @@
 ## 5. 下一步与请求
 
 ### 下一步（按顺序）
-1. **等用户确认**：把 `feat/noticehunter-mvp` 合并回 `main` 并推送（当前领先 5 个提交）。按 `AGENTS.md` 第 3 节，未经明确要求不擅自合并推送。
+1. **材料类产出（文档 / PPT / 视频）必须在第 11 周前启动**——这三项占预赛 87.5 分，堆到最后一周做不完。原型与样例已就绪，录屏素材可以立刻开录。
 2. 向任课老师确认 R-01（具体日期与提交平台）。
-3. **材料类产出（文档 / PPT / 视频）必须在第 11 周前启动**——这三项占预赛 87.5 分，堆到最后一周做不完。原型与样例已就绪，录屏素材可以立刻开录。
+3. 远端冗余分支 `origin/feat/noticehunter-mvp` 的处置（见第 4 节待办），等用户确认。
 4. 可选 LLM 抽取接口与加分项（D-005）排在材料之后，不抢三件套的时间。
 
 ### 请求（写在这里等对应文件释放）
@@ -178,6 +180,7 @@
 | 2026-10-14 12:45 | 主智能体 | 实现 `prototype/index.html` 单文件 MVP（提交 `c75f1c5`），另修 `879f3e3` 移除误提交的 playwright 快照 | `node --check` 提取的内联 JS 通过；`prototype/verify.cjs` 初版 **19 PASS / 0 FAIL** |
 | 2026-10-14 12:45 | 主智能体 | 独立评审两轮：首轮 3 项 critical（S2.5 截止标记规则未实现、T6 文案与 spec 不符且测试只 grep 日期、T7 测试同义反复）→ 修复（`2ec137e`）；复审确认**无 critical**，余 6 项 minor | 复审结论：spec compliance / correctness / consistency 三项均通过 |
 | 2026-10-14 12:45 | 主智能体 | 修复 5 项 minor（`6bfb7ee`）：`hasMarker` 要求标记紧跟标点、`timeNear` 不跨句、动词改按段落判定、恢复丢弃断言等 | 复测 **29 PASS / 0 FAIL**，含 `file://` 直开、损坏 `.docx` 中文提示、空清单提示、真实下载事件、控制台零报错 |
+| 2026-10-14 15:46 | 主智能体 | **git 收口**：主目录原为 detached HEAD（停在 `c46c4db`），先 `git checkout main`；`--no-ff` 合并功能分支（`137d6d0`）；根 `.gitignore` 追加 `.worktrees/`（`d072366`）；`push origin main` 与 `push -u origin feat/noticehunter-mvp`；`git worktree remove` 移除开发工作区；`git branch -d` 删除已合并的本地分支 | `git check-ignore -v .worktrees/noticehunter-mvp/prototype/index.html` 命中 `.gitignore:116`；`git status --porcelain -uall` 全空；`HEAD` == `origin/main` == `d072366`（IN SYNC）；`prototype/index.html`、spec、`prompts/P-001` 均在位。**WorkBuddy 的 worktree 与 `workbuddy/main-1927306e` 分支未触碰** |
 
 ---
 
@@ -195,3 +198,5 @@
 - **R-02 已解除（2026-10-13 追加）**：选题经用户在 compose-next Grill 环节确认，D-001 / D-002 状态改为「已定」。原条目按「只增不改」保留不删，本条为其解除记录。
 - **R-10 · 抽取规则的启发式局限（2026-10-14 追加，来自独立评审）**：`hasMarker` / `timeNear` 用日期后 40 字符窗口判断截止标记与时间，只对 `prototype/samples/` 这三份样例可靠。真实通知一旦出现「考前须知」「提前入场」等写法，仍可能误判置信度。**规则式抽取只能覆盖写法规范的文本，这是 D-005 已知且接受的边界**——接入 LLM 抽取（下一迭代）前，若要扩展演示素材，先补对应测试用例。
 - **R-11 · 分支尚未合并（2026-10-14 追加）**：`feat/noticehunter-mvp` 领先 `origin/main` 5 个提交，只存在于本地 worktree。**用户未确认前不要合并推送**；但也要记得收口，别让成果长期停在分支上。
+- **R-11 已解除（2026-10-14 15:46 追加）**：用户明确要求「对 git 进行操作，包括各分支整理、推送到 GitHub」，已按其选择的「合并推送 + 收尾清理」完成：功能分支 `--no-ff` 合入 `main`（`137d6d0`）、推送至 `origin/main`（`d072366`）、移除本地 worktree、删除本地功能分支。原条目按「只增不改」保留。
+- **R-12 · 仓库里有第三方工具的工作区（2026-10-14 追加）**：本机 WorkBuddy 在 `C:\Users\ASUS\WorkBuddy\Worktrees\...` 持有一个 worktree，分支 `workbuddy/main-1927306e`（停在 `12fcc87`），并曾在 `main` 上自动提交过 `072d428 "workbuddy init"`。**该 worktree 与分支本次未触碰**。后续整理分支时先确认 WorkBuddy 是否仍在使用，**不要连它一起删**。
