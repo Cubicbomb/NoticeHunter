@@ -42,6 +42,13 @@ function check(name, cond, detail) {
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  /* 无 Key 时不得发起任何外部网络请求（AGENTS.md §7 硬要求） */
+  const extReqs = [];
+  const trackExt = (pg) => pg.on('request', (r) => {
+    const u = r.url();
+    if (/^https?:\/\//i.test(u) && u.indexOf('127.0.0.1') < 0 && u.indexOf('localhost') < 0) extReqs.push(u);
+  });
+  trackExt(page);
 
   await page.goto(URL, { waitUntil: 'load' });
 
@@ -261,6 +268,7 @@ function check(name, cond, detail) {
   const errors2 = [];
   page2.on('console', (m) => { if (m.type() === 'error') errors2.push('console: ' + m.text()); });
   page2.on('pageerror', (e) => errors2.push('pageerror: ' + e.message));
+  trackExt(page2);
   await page2.goto(pathToFileURL(path.join(__dirname, 'index.html')).href);
   await page2.click('#sample');
   await page2.waitForTimeout(150);
@@ -272,6 +280,10 @@ function check(name, cond, detail) {
     fPara > 10 && fRaw.indexOf('2026 年 11 月 12 日') >= 0 && errors2.length === 0,
     'paras=' + fPara + ' / errors=' + (errors2.join(';') || 'none'));
   await page2.close();
+
+  /* T7：未配置 key 的两种打开方式都不许发出外部请求 */
+  check('T7 无 Key 时零外部网络请求（只允许 127.0.0.1）',
+    extReqs.length === 0, extReqs.join(' ;; ') || 'clean');
 
   await browser.close();
   fs.unlinkSync(BAD_PNG);
