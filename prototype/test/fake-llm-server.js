@@ -30,6 +30,7 @@ let mode = 'ok';          // ok | http-500 | bad-json | timeout
 let payload = null;       // 覆盖 ok 模式返回的 content（对象数组）
 let requests = 0;
 let lastBody = null;
+let timestamps = [];      // 每次请求到达的 Date.now()，用于验证 S2.11 最小间隔
 
 /* 固定 payload：带【STUB】标记，便于断言结果确实来自 stub 而非规则式 */
 const DEFAULT_PAYLOAD = [
@@ -77,7 +78,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && url === '/__state') {
-    json(res, 200, { mode: mode, requests: requests, hasPayload: !!payload, lastBody: lastBody });
+    json(res, 200, { mode: mode, requests: requests, hasPayload: !!payload, lastBody: lastBody, timestamps: timestamps });
     return;
   }
 
@@ -88,7 +89,7 @@ const server = http.createServer(async (req, res) => {
     catch (e) { json(res, 400, { error: String(e.message) }); return; }
     if (body.mode) mode = String(body.mode);
     if (Object.prototype.hasOwnProperty.call(body, 'payload')) payload = body.payload;
-    if (body.reset) { mode = 'ok'; payload = null; requests = 0; lastBody = null; }
+    if (body.reset) { mode = 'ok'; payload = null; requests = 0; lastBody = null; timestamps = []; }
     json(res, 200, { ok: true, mode: mode, hasPayload: !!payload, requests: requests });
     return;
   }
@@ -96,6 +97,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url === '/chat/completions') {
     const raw = await readBody(req);
     requests += 1;
+    timestamps.push(Date.now());
     lastBody = raw || null;
 
     if (mode === 'timeout') return;                                  // 挂起：永不响应

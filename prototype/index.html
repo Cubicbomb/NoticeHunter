@@ -216,6 +216,7 @@
         <button id="llmClear" class="ghost">清除设置</button>
         <button id="llmRetry">重新尝试 AI 抽取</button>
         <span id="llmHint" style="font-size:12.5px;color:#6b7280">尚未配置，当前使用规则式抽取</span>
+        <span id="llmCounter" style="font-size:12.5px;color:#6b7280"></span>
       </div>
       <p class="empty" style="margin:6px 0 0">三项齐备才算已配置。配置只存在本页内存中，刷新即清空，不写入浏览器存储、不出现在页面源码里。</p>
     </details>
@@ -328,13 +329,24 @@ const state = {
   extracting: false,     // 单次抽取在途
   busy: false,           // 整批操作（载入/重试）在途 —— S2.6「禁用重复触发」
   lastFallback: null,    // 最近一次回退原因；null 表示未回退
-  sessionId: 0           // 清空会话时自增，用于丢弃在途请求的过期结果
+  sessionId: 0,          // 清空会话时自增，用于丢弃在途请求的过期结果
+  llmRequests: 0,        // 会话累计已发出的请求数（含失败），S2.11 预算
+  llmLastRequestAt: 0    // 上一次请求发出时刻，S2.11 最小间隔
 };
 
 /* ===== LLM 配置（只存内存：不写 localStorage/sessionStorage、不进 URL、不进 DOM 属性）===== */
 const llm = { base: '', key: '', model: '' };
 const LLM_TIMEOUT_MS = 15000;   // spec S2.3
 const LLM_MAX_PARAS = 60;       // spec S2.5 单请求段落上限
+/* ===== spec S2.11 硬安全上限（防失控计费）===== */
+const LLM_MAX_TOKENS = 2048;         // 每次请求 max_tokens，封死输出膨胀
+const LLM_MAX_PARA_CHARS = 2000;     // 单段落送模型的字符上限
+const LLM_SESSION_REQUEST_CAP = 60;  // 会话累计请求上限（触顶即停用 AI）
+const LLM_MIN_INTERVAL_MS = 800;     // 两次 HTTP 请求最小间隔
+const LLM_CONFIRM_THRESHOLD = 200;   // 候选段落超过此值先弹确认
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function llmBudgetLeft() { return state.llmRequests < LLM_SESSION_REQUEST_CAP; }
 
 function llmConfigured() { return !!(llm.base && llm.key && llm.model); }
 
@@ -348,7 +360,7 @@ const elDrop = $('#drop'), elPick = $('#pick'), elFile = $('#file'), elSample = 
 /* LLM 相关 DOM：只更新这些，绝不整体重绘 #llmSettings（否则会把 key 序列化进 innerHTML） */
 const elModeBadge = $('#modeBadge'),
       elLlmBase = $('#llmBase'), elLlmKey = $('#llmKey'), elLlmModel = $('#llmModel'),
-      elLlmHint = $('#llmHint'), elLlmRetry = $('#llmRetry');
+      elLlmHint = $('#llmHint'), elLlmRetry = $('#llmRetry'), elLlmCounter = $('#llmCounter');
 
 let toastTimer = null;
 function toast(msg, ms) {
@@ -526,20 +538,35 @@ function stripFences(s) {
 
 /* 候选段落前置筛选（spec S2.5）：只把含日期或模糊时间词的段落送给模型，
    规则保证不漏召回，模型负责理解语义。无候选则不发请求。
-   超过单次上限的部分由 extractSource 分批顺序发送，此处不做截断。 */
+   超过单次上限的部分由 extractSource 分批顺序发送，此处不做截断。
+   spec S2.11.2-2：单段落超过 LLM_MAX_PARA_CHARS 时只截断「送模型的副本」，
+   sourceText 与原文区仍保留完整原文，并记录原文长度供卡片标注原因。 */
 function selectCandidateParagraphs(paragraphs) {
   const out = [];
+  const truncated = {};
   paragraphs.forEach((text, i) => {
-    if (detectDue(text)) out.push({ index: i + 1, text: text });
+    if (!detectDue(text)) return;
+    let t = text;
+    if (t.length > LLM_MAX_PARA_CHARS) {
+      truncated[i + 1] = t.length;
+      t = t.slice(0, LLM_MAX_PARA_CHARS);
+    }
+    out.push({ index: i + 1, text: t });
   });
-  return out;
+  return { list: out, truncated: truncated };
 }
 
 /* spec S2.3 调用契约：失败一律抛出带具体原因的中文 Error，由调用方回退 */
 async function callLLM(candidates, fileName) {
+  /* S2.11.2-3：会话预算触顶即拒绝发出新请求（失败的请求同样消耗预算） */
+  if (!llmBudgetLeft()) {
+    throw new Error('本会话 AI 请求已达上限 ' + LLM_SESSION_REQUEST_CAP + ' 次，已改用规则式抽取');
+  }
+
   const body = {
     model: llm.model,
     temperature: 0,
+    max_tokens: LLM_MAX_TOKENS,          /* S2.11.2-1 */
     messages: [
       { role: 'system', content: LLM_SYSTEM_PROMPT },
       {
@@ -549,6 +576,14 @@ async function callLLM(candidates, fileName) {
       }
     ]
   };
+
+  /* S2.11.2-4：保证两次请求之间至少间隔 LLM_MIN_INTERVAL_MS（首个请求不延迟） */
+  const gap = state.llmLastRequestAt
+    ? (LLM_MIN_INTERVAL_MS - (Date.now() - state.llmLastRequestAt)) : 0;
+  if (gap > 0) await sleep(gap);
+  state.llmLastRequestAt = Date.now();
+  state.llmRequests += 1;   // 含失败请求：它们已经产生了计费风险
+  renderAll();              // 刷新设置面板里的计数显示
 
   /* 超时计时器覆盖到「读完响应体」为止——否则已返回头但正文挂起时会永远卡住 */
   const timeoutMsg = 'AI 请求超时（' + (LLM_TIMEOUT_MS / 1000) + ' 秒），已回退规则式抽取';
@@ -858,9 +893,10 @@ function addSource(name, paragraphs) {
 }
 
 /* 统一抽取入口：已配置 → 先走 AI；任何失败或未配置 → 回退规则式，主流程永不中断 */
-async function extractSource(srcIdx) {
+async function extractSource(srcIdx, opts) {
   const src = state.sources[srcIdx];
   if (!src) return;
+  const quiet = !!(opts && opts.quiet);   // 重试时静默：文件并没有被重新载入，且不能盖掉错误提示
   const sid = state.sessionId;      // 会话被清空后，在途请求不得把条目塞进新会话
 
   // 重试时只替换仍待确认的条目，不破坏用户已确认 / 已完成的工作
@@ -869,7 +905,7 @@ async function extractSource(srcIdx) {
   state.extracting = true;
   state.lastFallback = null;
   renderAll();
-  toast('已载入 ' + src.name + '（' + src.paragraphs.length + ' 段）');
+  if (!quiet) toast('已载入 ' + src.name + '（' + src.paragraphs.length + ' 段）');
 
   const alive = () => state.sessionId === sid;
   try {
@@ -877,11 +913,21 @@ async function extractSource(srcIdx) {
       if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
       return;
     }
-    const candidates = selectCandidateParagraphs(src.paragraphs);
+    const cand = selectCandidateParagraphs(src.paragraphs);
+    const candidates = cand.list;
     if (!candidates.length) {
       // 无截止时间相关段落 → 不发任何请求（spec S2.5），直接规则式
       if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
       return;
+    }
+    /* S2.11.2-5：候选过多时先确认，避免用户在不知情下打出大量请求 */
+    if (candidates.length > LLM_CONFIRM_THRESHOLD) {
+      const go = window.confirm('该文件有 ' + candidates.length + ' 段候选，将分约 '
+        + Math.ceil(candidates.length / LLM_MAX_PARAS) + ' 次请求调用模型，是否继续？');
+      if (!go) {
+        if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+        return;
+      }
     }
     /* spec S2.5：单次请求不超过 LLM_MAX_PARAS，超出分批顺序发送，不截断 */
     const chunks = [];
@@ -896,6 +942,11 @@ async function extractSource(srcIdx) {
     if (!alive()) return;
 
     const mapped = mapLLMEntries(raw, src.paragraphs, src.name, srcIdx);
+    /* S2.11.2-2：被截断送模型的段落，对应卡片标注原因（原文区仍显示完整段落） */
+    for (const it of mapped.items) {
+      const origLen = cand.truncated[it.sourceIndex];
+      if (origLen) it.reasons.push('原文段落超长（' + origLen + ' 字），已截断送模型');
+    }
     if (!mapped.items.length) throw new Error('AI 返回的条目经校验后全部被剔除，已回退规则式抽取');
     state.items.push(...mapped.items);
     if (mapped.dropped > 0) {
@@ -1035,19 +1086,30 @@ function renderList() {
 
 function renderModeBadge() {
   const conf = llmConfigured();
+  const outOfBudget = conf && !llmBudgetLeft();
   if (elModeBadge) {
-    elModeBadge.textContent = conf
-      ? (state.lastFallback ? 'AI 抽取 · 已回退' : 'AI 抽取')
-      : '规则式抽取（兜底）';
+    let txt;
+    if (!conf) txt = '规则式抽取（兜底）';
+    else if (outOfBudget) txt = 'AI 抽取 · 预算已用尽';        /* S2.11.2-3 */
+    else if (state.lastFallback) txt = 'AI 抽取 · 已回退';
+    else txt = 'AI 抽取';
+    elModeBadge.textContent = txt;
     elModeBadge.className = 'badge' + (conf ? '' : ' mute');
   }
   if (elLlmHint) {
     elLlmHint.textContent = conf ? '已配置，抽取优先调用 AI' : '尚未配置，当前使用规则式抽取';
   }
+  /* S2.11.2-6：消耗可见性 */
+  if (elLlmCounter) {
+    elLlmCounter.textContent = '本会话已发 ' + state.llmRequests
+      + ' / ' + LLM_SESSION_REQUEST_CAP + ' 次请求';
+  }
   if (elLlmRetry) {
-    const pending = state.extracting || state.busy;
+    const busy = state.extracting || state.busy;
+    const pending = busy || outOfBudget;
     elLlmRetry.disabled = pending;
-    elLlmRetry.textContent = pending ? 'AI 抽取中…' : '重新尝试 AI 抽取';
+    elLlmRetry.textContent = busy ? 'AI 抽取中…'
+      : (outOfBudget ? '预算已用尽' : '重新尝试 AI 抽取');
   }
 }
 
@@ -1189,6 +1251,8 @@ elClear.addEventListener('click', () => {
   state.items = [];
   state.highlight = null;
   state.lastFallback = null;
+  state.llmRequests = 0;          // S2.11.2-3：预算随会话清空归零
+  state.llmLastRequestAt = 0;
   renderAll();
   toast('会话已清空');
 });
@@ -1242,7 +1306,7 @@ async function retryAI() {
   state.busy = true;
   try {
     toast('正在按 AI 重新抽取：已确认的条目会保留；仍待确认的条目会被重新生成，未保存的手动修改会丢失', 6500);
-    for (let i = 0; i < state.sources.length; i++) await extractSource(i);
+    for (let i = 0; i < state.sources.length; i++) await extractSource(i, { quiet: true });
   } finally {
     state.busy = false;
     renderAll();

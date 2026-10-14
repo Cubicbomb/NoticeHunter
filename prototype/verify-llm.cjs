@@ -20,6 +20,10 @@ const SAMPLES = path.join(__dirname, 'samples');
 const SECRET = 'sk-test-SECRET-XYZ-98765';
 const NODATE = path.join(__dirname, 'test', '_nodate.txt');
 const BIGFILE = path.join(__dirname, 'test', '_big65.txt');
+/* S2.11 测试素材 */
+const SINGLEFILE = path.join(__dirname, 'test', '_single.txt');   // 1 条候选
+const LONGFILE = path.join(__dirname, 'test', '_long.txt');       // 单段落超 2000 字
+const MANYFILE = path.join(__dirname, 'test', '_many250.txt');    // 250 条候选（触发确认）
 
 const results = [];
 function check(name, cond, detail) {
@@ -153,7 +157,8 @@ async function walkConfirmExport(page, label) {
   /* ===== T3 · http-500 回退 ===== */
   await ctl({ mode: 'http-500' });
   await page.click('#llmRetry');
-  await page.waitForTimeout(1200);
+  /* 节流生效后，两个源的重试需约 2×800ms；必须等整批跑完再断言终值 */
+  await page.waitForTimeout(4500);
   const t500 = await toastOf(page);
   check('T3 HTTP 500 触发含状态码的中文提示',
     /HTTP 500/.test(t500) && /回退/.test(t500), t500);
@@ -172,7 +177,7 @@ async function walkConfirmExport(page, label) {
   /* ===== T3 · bad-json 回退 ===== */
   await ctl({ mode: 'bad-json' });
   await page.click('#llmRetry');
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(4500);
   const tBad = await toastOf(page);
   check('T3 非法 JSON 触发含「无法解析为 JSON」的提示',
     /无法解析为 JSON/.test(tBad), tBad);
@@ -196,7 +201,7 @@ async function walkConfirmExport(page, label) {
   /* ===== T3 · 恢复 ok 后徽章回正 ===== */
   await ctl({ mode: 'ok' });
   await page.click('#llmRetry');
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(2500);          /* 含 800ms 节流，留足余量 */
   check('T3 恢复 ok 后徽章回到 AI 抽取',
     (await badge(page)) === 'AI 抽取', await badge(page));
 
@@ -215,7 +220,7 @@ async function walkConfirmExport(page, label) {
     ]
   });
   await page.click('#llmRetry');
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(2500);          /* 含 800ms 节流，留足余量 */
 
   const tDrop = await toastOf(page);
   check('T5 越界 sourceIndex 的条目被剔除并提示条数',
@@ -310,6 +315,123 @@ async function walkConfirmExport(page, label) {
   check('S2.5 分批后条目未丢失（stub 每批 1 条 → 共 2 条）',
     bigItems === 2, 'items=' + bigItems);
 
+  /* ==================== S2.11 硬安全上限 ==================== */
+  const counterEl = page.locator('#llmCounter');
+
+  /* --- T9：max_tokens 与单段落截断 --- */
+  fs.writeFileSync(LONGFILE,
+    '请于 2027 年 9 月 1 日前将材料交至测试地点。' + '冗'.repeat(2700) + 'TAILMARKER_XXX\n', 'utf8');
+  await page.click('#clear');
+  await page.waitForTimeout(250);
+  await ctl({ reset: true, mode: 'ok' });
+  await page.setInputFiles('#file', LONGFILE);
+  await page.waitForTimeout(1800);
+  const lastBodyT9 = (await stubState()).lastBody || '';
+  check('T9 请求体含 max_tokens:2048', lastBodyT9.indexOf('"max_tokens":2048') >= 0,
+    lastBodyT9.slice(0, 150));
+  check('T9 超长段落送模型的副本已截断（尾部标记未送出）',
+    lastBodyT9.indexOf('TAILMARKER_XXX') < 0, 'bodyLen=' + lastBodyT9.length);
+  check('T9 原文区仍保留完整段落（尾部标记还在）',
+    (await page.locator('#rawList').innerText()).indexOf('TAILMARKER_XXX') >= 0, '');
+  const reasonsT9 = await page.evaluate(() =>
+    state.items.reduce((acc, x) => acc.concat(x.reasons || []), []).join(' | '));
+  check('T9 对应卡片标注「原文段落超长」', reasonsT9.indexOf('原文段落超长') >= 0,
+    reasonsT9.slice(0, 160));
+
+  /* --- T8：请求计数可见性 --- */
+  const c0 = (await counterEl.textContent()).trim();
+  check('T8 计数显示为「本会话已发 N / 60 次请求」',
+    /本会话已发 \d+ \/ 60 次请求/.test(c0), c0);
+  const n0 = parseInt((c0.match(/已发 (\d+)/) || [])[1] || '-1', 10);
+  await page.click('#llmRetry');
+  await page.waitForTimeout(1800);
+  const c1 = (await counterEl.textContent()).trim();
+  const n1 = parseInt((c1.match(/已发 (\d+)/) || [])[1] || '-1', 10);
+  check('T8 每次实际请求后计数递增', n1 === n0 + 1, n0 + ' → ' + n1 + ' [' + c1 + ']');
+
+  /* --- T11：最小请求间隔 --- */
+  await page.click('#clear');
+  await page.waitForTimeout(250);
+  await ctl({ reset: true, mode: 'ok' });
+  await page.setInputFiles('#file', BIGFILE);          // 65 条候选 → 2 次分批请求
+  await page.waitForTimeout(4500);
+  const tsT11 = (await stubState()).timestamps || [];
+  const deltaT11 = tsT11.length >= 2 ? (tsT11[tsT11.length - 1] - tsT11[0]) : -1;
+  check('T11 相邻两次请求间隔 ≥ 700ms（实测常量 800ms）',
+    tsT11.length >= 2 && deltaT11 >= 700,
+    'n=' + tsT11.length + ' delta=' + deltaT11 + 'ms');
+
+  /* --- T12：大操作确认 --- */
+  const manyLines = [];
+  for (let i = 1; i <= 250; i++) {
+    manyLines.push('请于 2027 年 4 月 ' + ((i % 28) + 1) + ' 日前将第 ' + i + ' 号材料交至测试地点。');
+  }
+  fs.writeFileSync(MANYFILE, manyLines.join('\n'), 'utf8');
+  await page.click('#clear');
+  await page.waitForTimeout(250);
+  await ctl({ reset: true, mode: 'ok' });
+  let dialogAsked = null;
+  const onCancel = (d) => { dialogAsked = d.message(); d.dismiss(); };
+  page.on('dialog', onCancel);
+  const bT12 = (await stubState()).requests;
+  await page.setInputFiles('#file', MANYFILE);
+  await page.waitForTimeout(2500);
+  const aT12 = (await stubState()).requests;
+  check('T12 候选 >200 时弹出确认且含段数',
+    !!dialogAsked && /250 段候选/.test(dialogAsked), dialogAsked || 'no dialog');
+  check('T12 选择取消后不发任何请求', aT12 === bT12, bT12 + ' → ' + aT12);
+  page.off('dialog', onCancel);
+  const onAccept = (d) => d.accept();
+  page.on('dialog', onAccept);
+  const bT12b = (await stubState()).requests;
+  await page.click('#llmRetry');
+  await page.waitForTimeout(7000);
+  const aT12b = (await stubState()).requests;
+  check('T12 选择接受后正常发出分批请求', aT12b > bT12b, bT12b + ' → ' + aT12b);
+  page.off('dialog', onAccept);
+
+  /* --- T10：会话请求预算触顶（60 次 × 800ms 间隔，本项约需 50 秒）--- */
+  fs.writeFileSync(SINGLEFILE, '请于 2027 年 10 月 1 日前将材料交至测试地点。\n', 'utf8');
+  await page.click('#clear');
+  await page.waitForTimeout(250);
+  await ctl({ reset: true, mode: 'ok' });
+  await page.setInputFiles('#file', SINGLEFILE);
+  await page.waitForTimeout(1800);
+  let guard = 0;
+  while (guard < 80) {
+    const cur = await page.evaluate(() => state.llmRequests);
+    if (cur >= 60) break;
+    if (await page.locator('#llmRetry').isDisabled()) break;
+    await page.click('#llmRetry');
+    await page.waitForTimeout(1100);
+    guard++;
+  }
+  const llmAtCap = await page.evaluate(() => state.llmRequests);
+  const reqAtCap = (await stubState()).requests;
+  const badgeCap = await badge(page);
+  const disabledCap = await page.locator('#llmRetry').isDisabled();
+  check('T10 请求累计达到 60 次上限', llmAtCap >= 60, 'llmRequests=' + llmAtCap + ' retries=' + guard);
+  check('T10 触顶后徽章显示「AI 抽取 · 预算已用尽」',
+    badgeCap === 'AI 抽取 · 预算已用尽', badgeCap);
+  check('T10 触顶后重试按钮被禁用', disabledCap === true, 'disabled=' + disabledCap);
+
+  /* 触顶后再调用真实 retryAI：必须一条请求都不发 */
+  await page.evaluate(() => retryAI());
+  await page.waitForTimeout(1200);
+  const reqAfterCap = (await stubState()).requests;
+  const toastCap = await toastOf(page);
+  check('T10 触顶后再重试不发出任何请求', reqAfterCap === reqAtCap,
+    reqAtCap + ' → ' + reqAfterCap);
+  check('T10 toast 说明预算上限', /已达上限 60 次/.test(toastCap), toastCap);
+
+  await page.click('#clear');
+  await page.waitForTimeout(350);
+  const cClear = (await counterEl.textContent()).trim();
+  check('T10 清空会话后预算归零', cClear.indexOf('0 / 60') >= 0, cClear);
+  check('T10 清空后重试按钮恢复可用',
+    !(await page.locator('#llmRetry').isDisabled()),
+    'disabled=' + await page.locator('#llmRetry').isDisabled());
+
   /* ===== T2 · 刷新后配置清空 ===== */
   await page.reload({ waitUntil: 'load' });
   await page.waitForTimeout(300);
@@ -342,7 +464,9 @@ async function walkConfirmExport(page, label) {
 
   await browser.close();
   fs.unlinkSync(NODATE);
-  if (fs.existsSync(BIGFILE)) fs.unlinkSync(BIGFILE);
+  for (const f of [BIGFILE, SINGLEFILE, LONGFILE, MANYFILE]) {
+    if (fs.existsSync(f)) fs.unlinkSync(f);
+  }
 
   console.log('==== LLM 路径验证结果 ====');
   console.log(results.join('\n'));
