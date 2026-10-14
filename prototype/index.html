@@ -210,8 +210,8 @@
     <ul id="todoList"></ul>
     <p id="listEmpty" class="empty">还没有已确认的行动项。</p>
     <div class="row">
-      <button id="export" class="primary" disabled>导出 .txt</button>
-      <button id="copy" disabled>复制到剪贴板</button>
+      <button id="export" class="primary">导出 .txt</button>
+      <button id="copy">复制到剪贴板</button>
     </div>
   </section>
 
@@ -331,7 +331,7 @@ async function inflateRaw(u8) {
   return new TextDecoder('utf-8').decode(buf);
 }
 
-async function readDocxXml(ab) {
+async function _docxRaw(ab) {
   const view = new DataView(ab), bytes = new Uint8Array(ab);
   let eocd = -1;
   const floor = Math.max(0, bytes.length - 66000);
@@ -364,6 +364,19 @@ async function readDocxXml(ab) {
   if (hit.method === 0) return new TextDecoder('utf-8').decode(comp);
   if (hit.method === 8) return inflateRaw(comp);
   throw new Error('不支持的压缩方式（method=' + hit.method + '）');
+}
+
+/* 对外接口：保证抛出的一定是中文说明（S2.4 要求），DataView 越界等原生异常一律兜底 */
+async function readDocxXml(ab) {
+  try {
+    return await _docxRaw(ab);
+  } catch (e) {
+    const msg = (e && e.message) || '';
+    if (/[一-鿿]/.test(msg)) throw e;
+    const err = new Error('文件已损坏或不是标准 .docx，无法解析');
+    err.cause = e;
+    throw err;
+  }
 }
 
 function unescapeXml(s) {
@@ -442,6 +455,13 @@ const RE_FULL_G = new RegExp(RE_FULL.source, 'g');
 const RE_ISO_G = new RegExp(RE_ISO.source, 'g');
 const RE_SHORT_G = new RegExp(RE_SHORT.source, 'g');
 const RE_TIME_G = new RegExp(RE_TIME.source, 'g');
+/* 日期 + 可选星期括注 + 可选时间 + 可选截止标记 一次吃掉，
+   避免逐字剥「前」误伤「提前」这类词，也避免日期与时间之间夹「（周四）」时清不干净 */
+const RE_DATE_MARK = new RegExp(
+  '(?:' + RE_FULL.source + '|' + RE_ISO.source + '|' + RE_SHORT.source + ')'
+  + '\\s*(?:[（(]\\s*(?:周|星期|礼拜)?\\s*[一二三四五六日天]\\s*[)）]\\s*)?'
+  + '(?:' + RE_TIME.source + ')?'
+  + '\\s*(?:之前|前|截止时间|截止)?', 'g');
 
 const VAGUE_PATTERNS = [
   '考试结束后一周内', '考试结束后', '下周一之前', '下周一前', '下周一',
@@ -487,47 +507,66 @@ function sentenceAt(text, idx) {
   return text.slice(s, e).trim();
 }
 
+/* 日期之后的短窗口内取时间与截止标记（避免把全文里任意 HH:MM 挂到这个日期上） */
+function timeNear(text, start) {
+  const win = text.slice(start, start + 40);
+  const tm = RE_TIME.exec(win);
+  return tm ? ' ' + pad(+tm[1]) + ':' + tm[2] : '';
+}
+function hasMarker(text, start) {
+  return /之前|前|截止时间|截止/.test(text.slice(start, start + 40));
+}
+/* 用等长空格替换，保持下标对齐，便于回推到原句 */
+function blankOut(text) {
+  return text
+    .replace(RE_FULL_G, (s) => ' '.repeat(s.length))
+    .replace(RE_ISO_G, (s) => ' '.repeat(s.length));
+}
+
 function detectDue(text) {
   let m = RE_FULL.exec(text);
   if (m) {
-    const tm = RE_TIME.exec(text);
-    const time = tm ? ' ' + pad(+tm[1]) + ':' + tm[2] : '';
+    const end = m.index + m[0].length;
+    const time = timeNear(text, end);
     return {
       due: m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]) + time,
-      dueRaw: m[0] + time, idx: m.index, vague: false, hasYear: true
+      dueRaw: m[0] + time, idx: m.index, vague: false, hasYear: true,
+      marker: hasMarker(text, end)
     };
   }
   m = RE_ISO.exec(text);
   if (m) {
-    const tm = RE_TIME.exec(text);
-    const time = tm ? ' ' + pad(+tm[1]) + ':' + tm[2] : '';
+    const end = m.index + m[0].length;
+    const time = timeNear(text, end);
     return {
       due: m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]) + time,
-      dueRaw: m[0] + time, idx: m.index, vague: false, hasYear: true
+      dueRaw: m[0] + time, idx: m.index, vague: false, hasYear: true,
+      marker: hasMarker(text, end)
     };
   }
-  const stripped = text.replace(RE_FULL_G, ' ').replace(RE_ISO_G, ' ');
+  const stripped = blankOut(text);
   m = RE_SHORT.exec(stripped);
   if (m) {
-    const tm = RE_TIME.exec(stripped);
-    const time = tm ? ' ' + pad(+tm[1]) + ':' + tm[2] : '';
+    const end = m.index + m[0].length;
+    const time = timeNear(stripped, end);
     return {
       due: new Date().getFullYear() + '-' + pad(+m[1]) + '-' + pad(+m[2]) + time,
-      dueRaw: m[0] + time, idx: 0, vague: false, hasYear: false
+      dueRaw: m[0] + time, idx: m.index, vague: false, hasYear: false,
+      marker: hasMarker(stripped, end)
     };
   }
   m = RE_VAGUE.exec(text);
-  if (m) return { due: null, dueRaw: m[0], idx: m.index, vague: true, hasYear: false };
+  if (m) return { due: null, dueRaw: m[0], idx: m.index, vague: true, hasYear: false, marker: true };
   return null;
 }
 
 function cleanAction(text, owner) {
   let t = String(text);
   t = t.replace(/^\s*(?:\d+[.、)]|[（(]\d+[)）]|[一二三四五六七八九十]+[、.])\s*/, '');
-  t = t.replace(RE_FULL_G, ' ').replace(RE_ISO_G, ' ').replace(RE_SHORT_G, ' ').replace(RE_TIME_G, ' ');
-  for (const v of VAGUE_SORTED) t = t.split(v).join(' ');
+  t = t.replace(RE_DATE_MARK, ' ');
+  for (const v of VAGUE_SORTED) t = t.replace(new RegExp(escapeRe(v) + '\\s*(?:之前|前)?', 'g'), ' ');
   t = t.replace(/[（(]\s*(?:周|星期|礼拜)?\s*[一二三四五六日天]\s*[)）]/g, ' ');
-  t = t.replace(/(?:之前|截止时间|截止|前)/g, ' ');
+  t = t.replace(/截止时间|截止/g, ' ');
   t = t.replace(/请(?:于|在)/g, ' ');
   if (owner) t = t.split(owner).join(' ');
   t = t.replace(/\s+/g, ' ');
@@ -537,13 +576,13 @@ function cleanAction(text, owner) {
          .replace(/^[,，、;；:：\s]+/, '');
     if (t === before) break;
   }
-  return t.replace(/\s*，\s*/g, '，').replace(/\s+/g, ' ').replace(/^[，,、;；:：\s]+/, '').trim();
+  return t.replace(/\s*，\s*/g, '，').replace(/\s+/g, ' ')
+          .replace(/^[，,、;；:：\s]+/, '').replace(/[，,、;；:：\s]+$/, '').trim();
 }
 
 function extractFromParagraph(text, name, paraIdx, srcIdx) {
   const dueInfo = detectDue(text);
   if (!dueInfo) return null;
-  if (!RE_VERB.test(text)) return null;
 
   const sentence = sentenceAt(text, dueInfo.idx);
   const owner = detectOwner(sentence);
@@ -551,10 +590,9 @@ function extractFromParagraph(text, name, paraIdx, srcIdx) {
   const reasons = [];
   if (dueInfo.vague) reasons.push('截止时间表述模糊：「' + dueInfo.dueRaw + '」');
   if (!dueInfo.hasYear) reasons.push('原文未写年份，已按当前年推算');
+  if (!dueInfo.vague && !dueInfo.marker) reasons.push('未明确标注截止（原文未出现「前/之前/截止」）');
   if (!RE_VERB.test(sentence)) reasons.push('所在句子未找到交件动词');
-  if (dueInfo.idx === 0 && !dueInfo.vague && !RE_FULL.test(sentence) && !RE_ISO.test(sentence)) {
-    reasons.push('未定位到具体截止时间所在句');
-  }
+  if (!sentence) reasons.push('未定位到具体截止时间所在句');
 
   const whereM = RE_WHERE.exec(sentence) || RE_WHERE.exec(text);
   const emailM = RE_EMAIL.exec(sentence);
@@ -683,8 +721,8 @@ function renderList() {
 
   if (conflicts.length) {
     elConflict.classList.add('on');
-    elConflict.innerHTML = '<h3>撞期提醒：同一时间有多个任务</h3><ul>'
-      + conflicts.map((c) => '<li><strong>' + esc(c.day) + '</strong> 共 ' + c.list.length + ' 项：'
+    elConflict.innerHTML = '<h3>撞期提醒</h3><ul>'
+      + conflicts.map((c) => '<li>同一天有 ' + c.list.length + ' 个任务：<strong>' + esc(c.day) + '</strong> —— '
           + c.list.map((it) => esc(it.action)).join('；') + '</li>').join('')
       + '</ul>';
   } else {
@@ -708,10 +746,7 @@ function renderList() {
       + '<button class="link" data-act="src" data-id="' + it.id + '">出处</button>'
       + '</li>';
   }).join('');
-
-  const has = items.length > 0;
-  elExport.disabled = !has;
-  elCopy.disabled = !has;
+  /* 导出按钮始终可点：清单为空时点击会给出提示（S2.11），而非把分支禁掉导致永远触发不到 */
 }
 
 function renderAll() {
@@ -826,11 +861,14 @@ document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => e.preventDefault());
 
 elSample.addEventListener('click', () => {
+  let added = 0;
   for (const s of SAMPLES) {
+    if (state.sources.some((x) => x.name === s.name)) continue;
     const paras = parseTxt(s.text);
-    if (paras.length) addSource(s.name, paras);
+    if (paras.length) { addSource(s.name, paras); added++; }
   }
   renderAll();
+  if (!added) toast('样例已全部载入，无需重复添加');
 });
 
 elClear.addEventListener('click', () => {
