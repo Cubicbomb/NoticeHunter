@@ -325,7 +325,8 @@ const SAMPLES = [
 /* ===== 会话状态 ===== */
 const state = {
   sources: [], items: [], seq: 0, highlight: null,
-  extracting: false,     // 是否有 AI 请求在途
+  extracting: false,     // 单次抽取在途
+  busy: false,           // 整批操作（载入/重试）在途 —— S2.6「禁用重复触发」
   lastFallback: null,    // 最近一次回退原因；null 表示未回退
   sessionId: 0           // 清空会话时自增，用于丢弃在途请求的过期结果
 };
@@ -477,21 +478,24 @@ async function loadTxtFile(file) {
 async function handleFiles(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
-  if (state.extracting) { toast('AI 抽取进行中，请稍候再载入'); return; }
-  let ok = 0;
-  for (const f of files) {
-    const lower = f.name.toLowerCase();
-    if (!lower.endsWith('.docx') && !lower.endsWith('.txt')) {
-      toast('暂不支持该格式：' + f.name + '（请上传 .txt 或 .docx）');
-      continue;
+  if (state.extracting || state.busy) { toast('抽取进行中，请稍候再载入'); return; }
+  state.busy = true;
+  try {
+    for (const f of files) {
+      const lower = f.name.toLowerCase();
+      if (!lower.endsWith('.docx') && !lower.endsWith('.txt')) {
+        toast('暂不支持该格式：' + f.name + '（请上传 .txt 或 .docx）');
+        continue;
+      }
+      const paragraphs = lower.endsWith('.docx') ? await loadDocxFile(f) : await loadTxtFile(f);
+      if (!paragraphs) continue;
+      const srcIdx = addSource(f.name, paragraphs);
+      await extractSource(srcIdx);
     }
-    const paragraphs = lower.endsWith('.docx') ? await loadDocxFile(f) : await loadTxtFile(f);
-    if (!paragraphs) continue;
-    const srcIdx = addSource(f.name, paragraphs);
-    await extractSource(srcIdx);
-    ok++;
+  } finally {
+    state.busy = false;
+    renderAll();
   }
-  renderAll();
 }
 
 /* ===== LLM 主抽取（spec noticehunter-llm S2.1 ~ S2.5）===== */
@@ -885,7 +889,10 @@ async function extractSource(srcIdx) {
       chunks.push(candidates.slice(i, i + LLM_MAX_PARAS));
     }
     let raw = [];
-    for (const c of chunks) raw = raw.concat(await callLLM(c, src.name));
+    for (const c of chunks) {
+      if (!alive()) return;      // 会话被清空则立即停止，不再发后续分批
+      raw = raw.concat(await callLLM(c, src.name));
+    }
     if (!alive()) return;
 
     const mapped = mapLLMEntries(raw, src.paragraphs, src.name, srcIdx);
@@ -1038,8 +1045,9 @@ function renderModeBadge() {
     elLlmHint.textContent = conf ? '已配置，抽取优先调用 AI' : '尚未配置，当前使用规则式抽取';
   }
   if (elLlmRetry) {
-    elLlmRetry.disabled = state.extracting;
-    elLlmRetry.textContent = state.extracting ? 'AI 抽取中…' : '重新尝试 AI 抽取';
+    const pending = state.extracting || state.busy;
+    elLlmRetry.disabled = pending;
+    elLlmRetry.textContent = pending ? 'AI 抽取中…' : '重新尝试 AI 抽取';
   }
 }
 
@@ -1156,17 +1164,22 @@ document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => e.preventDefault());
 
 elSample.addEventListener('click', async () => {
-  if (state.extracting) { toast('AI 抽取进行中，请稍候'); return; }
+  if (state.extracting || state.busy) { toast('抽取进行中，请稍候'); return; }
+  state.busy = true;
   let added = 0;
-  for (const s of SAMPLES) {
-    if (state.sources.some((x) => x.name === s.name)) continue;
-    const paras = parseTxt(s.text);
-    if (!paras.length) continue;
-    const idx = addSource(s.name, paras);
-    await extractSource(idx);
-    added++;
+  try {
+    for (const s of SAMPLES) {
+      if (state.sources.some((x) => x.name === s.name)) continue;
+      const paras = parseTxt(s.text);
+      if (!paras.length) continue;
+      const idx = addSource(s.name, paras);
+      await extractSource(idx);
+      added++;
+    }
+  } finally {
+    state.busy = false;
+    renderAll();
   }
-  renderAll();
   if (!added) toast('样例已全部载入，无需重复添加');
 });
 
@@ -1225,10 +1238,15 @@ function clearLlmSettings() {
 async function retryAI() {
   if (!llmConfigured()) { toast('尚未配置，当前使用规则式抽取'); return; }
   if (!state.sources.length) { toast('还没有已载入的文件'); return; }
-  if (state.extracting) { toast('AI 抽取进行中，请稍候'); return; }
-  toast('正在按 AI 重新抽取：已确认的条目会保留；仍待确认的条目会被重新生成，未保存的手动修改会丢失', 6500);
-  for (let i = 0; i < state.sources.length; i++) await extractSource(i);
-  renderAll();
+  if (state.extracting || state.busy) { toast('AI 抽取进行中，请稍候'); return; }
+  state.busy = true;
+  try {
+    toast('正在按 AI 重新抽取：已确认的条目会保留；仍待确认的条目会被重新生成，未保存的手动修改会丢失', 6500);
+    for (let i = 0; i < state.sources.length; i++) await extractSource(i);
+  } finally {
+    state.busy = false;
+    renderAll();
+  }
 }
 
 const elLlmSave = $('#llmSave'), elLlmClearBtn = $('#llmClear');

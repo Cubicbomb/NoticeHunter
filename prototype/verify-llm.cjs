@@ -55,6 +55,25 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
   quote: ((el.querySelector('.quote')) || {}).textContent || ''
 })));
 
+/* T7：每种故障回退后都要完整走通「确认 → 清单 → 导出」（spec 三种故障各跑一遍） */
+async function walkConfirmExport(page, label) {
+  const btns = page.locator('#reviewList button[data-act="confirm"]');
+  if ((await btns.count()) === 0) {
+    check('T7 [' + label + '] 回退后仍可确认 → 清单 → 导出', false, '无可确认条目');
+    return;
+  }
+  await btns.first().click();
+  await page.waitForTimeout(300);
+  const txt = await page.evaluate(
+    () => (typeof buildExport === 'function' ? buildExport() : null));
+  const p = page.waitForEvent('download');
+  await page.click('#export');
+  const dl = await p;
+  check('T7 [' + label + '] 回退后仍可确认 → 清单 → 导出',
+    !!txt && txt.indexOf('出处：') >= 0 && /\.txt$/.test(dl.suggestedFilename()),
+    (txt || '(null)').split('\n').slice(0, 2).join(' / '));
+}
+
 (async () => {
   fs.mkdirSync(path.join(__dirname, 'test'), { recursive: true });
   fs.writeFileSync(NODATE, '这是一段完全没有时间信息的文字。\n这里也没有任何日期或截止要求。\n仅用于验证无候选段落时不发请求。\n', 'utf8');
@@ -147,17 +166,8 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
     cardsAfterFallback > 0 && ruleBadges === cardsAfterFallback,
     'rule=' + ruleBadges + '/' + cardsAfterFallback);
 
-  /* T7：故障回退后必须仍能走通「确认 → 清单 → 导出」 */
-  await page.locator('#reviewList button[data-act="confirm"]').first().click();
-  await page.waitForTimeout(300);
-  const faultExport = await page.evaluate(
-    () => (typeof buildExport === 'function' ? buildExport() : null));
-  const dlFaultP = page.waitForEvent('download');
-  await page.click('#export');
-  const dlFault = await dlFaultP;
-  check('T7 故障回退后仍可确认并导出（含出处）',
-    !!faultExport && faultExport.indexOf('出处：') >= 0 && /\.txt$/.test(dlFault.suggestedFilename()),
-    (faultExport || '(null)').split('\n').slice(0, 3).join(' / '));
+  /* T7：故障回退后必须仍能走通「确认 → 清单 → 导出」——三种故障各一遍 */
+  await walkConfirmExport(page, 'http-500');
 
   /* ===== T3 · bad-json 回退 ===== */
   await ctl({ mode: 'bad-json' });
@@ -166,6 +176,7 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
   const tBad = await toastOf(page);
   check('T3 非法 JSON 触发含「无法解析为 JSON」的提示',
     /无法解析为 JSON/.test(tBad), tBad);
+  await walkConfirmExport(page, 'bad-json');
 
   /* ===== T3 · timeout 回退（单文件，避免两次 15s 串行等待）===== */
   await page.click('#clear');
@@ -180,6 +191,7 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
     /超时/.test(tTo) && /回退/.test(tTo), tTo);
   check('T3 超时后主流程仍可用（清单与卡片仍在）',
     (await page.locator('#reviewList .card').count()) > 0);
+  await walkConfirmExport(page, 'timeout');
 
   /* ===== T3 · 恢复 ok 后徽章回正 ===== */
   await ctl({ mode: 'ok' });
@@ -197,7 +209,9 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
       { action: '截止格式非法的条目', owner: null, where: '地点乙', dueRaw: '2027 年 6 月 2 日之前',
         due: '乱七八糟不是日期', sourceIndex: 2, confidence: 'high', reasons: [] },
       { action: '来源越界的条目', owner: null, where: null, dueRaw: '2027 年 7 月 1 日',
-        due: '2027-07-01', sourceIndex: 9999, confidence: 'high', reasons: [] }
+        due: '2027-07-01', sourceIndex: 9999, confidence: 'high', reasons: [] },
+      { action: '置信度非法的条目', owner: null, where: null, dueRaw: '2027 年 8 月 1 日',
+        due: '2027-08-01', sourceIndex: 3, confidence: '超高', reasons: [] }
     ]
   });
   await page.click('#llmRetry');
@@ -222,6 +236,14 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
     !!fixed && fixed.due === '2027-06-02'
       && fixed.reasons.join('').indexOf('格式非法') >= 0,
     JSON.stringify(fixed));
+
+  const confFix = await page.evaluate(() => {
+    const i = state.items.find((x) => x.action === '置信度非法的条目');
+    return i ? { c: i.confidence, r: i.reasons } : null;
+  });
+  check('T5 非法 confidence 回落为 low 并写入原因（S2.4）',
+    !!confFix && confFix.c === 'low' && confFix.r.join('').indexOf('置信度非法') >= 0,
+    JSON.stringify(confFix));
 
   /* ===== T6 · 卡片与清单的来源标注 ===== */
   await page.locator('#reviewList button[data-act="confirm"]').first().click();
@@ -251,6 +273,23 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
     nodateItems === 0, 'items=' + nodateItems);
   check('T4 其余文件条目不受影响（总数不变）',
     itemsAfter === itemsBefore, itemsBefore + '→' + itemsAfter);
+
+  /* 阶段二：spec T4 验收明确要求「载入并点『重新尝试 AI 抽取』后」——
+     清空会话、只载入该文件，再点重试，此时同样不得发出任何请求 */
+  await page.click('#clear');
+  await page.waitForTimeout(200);
+  await page.setInputFiles('#file', NODATE);
+  await page.waitForTimeout(700);
+  const rr0 = (await stubState()).requests;
+  await page.click('#llmRetry');
+  await page.waitForTimeout(900);
+  const rr1 = (await stubState()).requests;
+  const nodateAfterRetry = await page.evaluate(() =>
+    state.items.filter((x) => String(x.sourceName).indexOf('_nodate') >= 0).length);
+  check('T4 点「重新尝试 AI 抽取」后请求计数仍不变（0 次新增）',
+    rr1 === rr0, 'requests ' + rr0 + '→' + rr1);
+  check('T4 重试后该文件仍产生 0 条候选条目',
+    nodateAfterRetry === 0, 'items=' + nodateAfterRetry);
 
   /* ===== S2.5 · 分批顺序发送（65 条候选 > 上限 60 → 必须 2 次请求，不是截断成 1 次）===== */
   const bigLines = [];
@@ -288,6 +327,12 @@ const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((e
     (await hint(page)) === '尚未配置，当前使用规则式抽取', JSON.stringify(await hint(page)));
 
   /* ===== 收尾 ===== */
+  /* T1：测试桩仅供测试，产品单文件不得引用它（四模式行为由 T3 经真实调用链路间接覆盖） */
+  const productSrc = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  check('T1 产品代码不引用测试 stub（零依赖/单一事实源）',
+    productSrc.indexOf('fake-llm') < 0 && productSrc.indexOf('test/') < 0,
+    productSrc.indexOf('fake-llm') >= 0 ? 'LEAKED' : 'clean');
+
   check('全程无未捕获异常（pageerror）', errors.length === 0, errors.join(' ;; ') || 'clean');
   /* 浏览器对任何非 2xx 都记一条 "Failed to load resource"，而 http-500 是本测试故意触发的，属预期 */
   const unexpected = consoleErrs.filter((t) => !/Failed to load resource/i.test(t));
