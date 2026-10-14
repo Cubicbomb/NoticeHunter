@@ -1,9 +1,9 @@
 ---
 feature: noticehunter-mvp
-status: in-progress
-updated: 2026-10-13
+status: delivered
+updated: 2026-10-14
 branch: feat/noticehunter-mvp
-commits:
+commits: 12fcc87..6bfb7ee
 ---
 
 # 通知猎人 NoticeHunter · MVP
@@ -11,6 +11,17 @@ commits:
 > 路径覆盖说明：`compose-next` 默认 spec 路径为 `docs/compose/spec/<feature>.md`；项目 `AGENTS.md` 未规定 spec 路径，故沿用默认位置。
 
 ## Report
+
+**What was built** — 单文件静态页 `prototype/index.html`（约 900 行，HTML/CSS/JS 全内联），零构建、零 npm 依赖、零网络请求，`file://` 直开与本地静态服务器两种方式表现一致。它把 `.txt` / `.docx` 通知（或内置的两份模拟样例）转成「谁 / 什么时候前 / 交什么 / 交到哪」的行动清单：手写 ZIP 中央目录 + 浏览器原生 `DecompressionStream('deflate-raw')` 解析 `.docx`（未引入任何库）；正则做确定性抽取（完整日期、缺年份、模糊时间、截止标记、交件地点、责任人）；低置信度条目整体标黄并列出原因，**必须人工点确认才进入清单**；清单按截止排序、可打勾、同日撞期会弹出「同一天有 N 个任务：YYYY-MM-DD」、动作+截止完全相同的条目自动合并并标注来源数；每条可跳回原文高亮定位；可导出纯文本或复制到剪贴板。全过程不发任何网络请求，无 Key 也可跑通完整闭环。
+
+**Verification** — `node --check` 对提取出的内联 JS 通过。核心验收是 `prototype/verify.cjs`（Playwright + Edge，`channel: 'msedge'`，`NODE_PATH` 指向 npx 缓存的 `playwright-core`，项目自身无任何新增依赖）：起 `python -m http.server 8761 --bind 127.0.0.1` 后运行，**29 PASS / 0 FAIL**，覆盖 T1–T9 全部验收标准，另含 `file://` 直开路径与控制台零报错断言。断言一律调用产品真实函数或真实 DOM：`buildExport()`、`confirmItem()`、真实下载事件、真实 toast 文案，无自写逻辑充当期望值。两轮独立评审：首轮 3 项 critical 全部修复；复审（`879f3e3..2ec137e`）确认无 critical，余 6 项 minor 中 5 项已修并复测通过，第 6 项（发布日期类噪声卡片）为 spec 明确要求的行为、予以保留。
+
+**Journey log**
+1. **`String.split(regex)` 带捕获组会把捕获组插回结果** —— 日期被拆成 `2026 12 25` 残留在动作字段。根因是 JS 语言行为，不是正则写错；改用带 `g` 标志的 `replace`。
+2. **测试写法比产品代码更容易骗人** —— 首轮评审的 T7 断言在 `page.evaluate` 里自己重写一遍导出逻辑再断言自己，恒为真；T6 只 grep 日期，把「文案与 spec 不符」完全掩盖。修的是测试而非产品。教训：期望值必须来自规格原文或被测函数本身。
+3. **规格里的文案也是契约** —— 撞期提示条写死的「同一天有 N 个任务：YYYY-MM-DD」是 T6 验收的一部分，改文案等于改接口，测试要断言整句。
+4. **启发式窗口是最脆的一环** —— `hasMarker` / `timeNear` 的 40 字符窗口对样例可靠，遇到「考前」「提前」就会误判（已收紧为「标记须紧跟标点」），已登记为 `HANDOFF.md` R-10：扩展演示素材前先补用例。
+5. **先规格后编码能省掉返工** —— Grill 把「选题 / 工作区 / 抽取方案 / 是否批准」四个分叉一次问清，spec 批准后实现一路没有回头改需求；两轮评审也才有可对照的验收标准。
 
 ## [S1] Problem
 
@@ -180,12 +191,12 @@ TodoItem {
 
 ## Tasks
 
-- [ ] T1: 单页骨架与内联样例 — acceptance: `file://` 双击打开 `prototype/index.html`，点「用样例演示」后原文区出现 `notice-internship.txt` 全部段落，控制台无报错 (covers: S2.1, S2.3)
-- [ ] T2: 零依赖 `.docx` 解析与错误兜底 — acceptance: 拖入 `prototype/samples/notice-competition.docx` 后原文区出现正文段落（含「2026 年 11 月 12 日」）；拖入 `.png` 与改扩展名的损坏文件时各自得到中文 toast 提示，页面不白屏 (covers: S2.3, S2.4, S2.11; depends: T1)
-- [ ] T3: 规则式抽取器 — acceptance: 载入 `notice-exam-week.txt` 后，「本周内」「下周一之前」两条被标为低置信度并列出原因；「2026 年 12 月 25 日 17:00」一条为高置信度；载入 `notice-internship.txt` 后能抽出交件地点「学院学生事务办公室」 (covers: S2.2, S2.5; depends: T1)
-- [ ] T4: 人工确认面板 — acceptance: 未点确认的条目不出现在行动清单；丢弃一条后该卡片消失且不进清单；确认一条低置信度条目后它进入清单；四个字段可编辑并在确认后反映到清单 (covers: S2.6; depends: T3)
-- [ ] T5: 行动清单与完成态 — acceptance: 确认多条不同日期条目后按截止升序排列、无日期者排最后；勾选一条后该行出现删除线样式，且导出内容对应行显示 `[x]` (covers: S2.8; depends: T4)
-- [ ] T6: 跨文件撞期与去重 — acceptance: 同时载入两份 `.txt` 样例并确认相关条目后，界面出现「同一天有 2 个任务：2026-12-25」提示，相关卡片带撞期标记；动作与截止完全相同的两条被合并为一条并标注来源数 (covers: S2.7; depends: T5)
-- [ ] T7: 导出文本清单 — acceptance: 点「导出」后浏览器下载得到 `.txt`，内容含每条的截止、动作、谁、交到哪、出处文件名与段落号；空清单时给出提示而非下载空文件 (covers: S2.10; depends: T5)
-- [ ] T8: 出处跳转与高亮 — acceptance: 点击某条目「出处」后原文区滚动到对应段落并高亮，切换到另一条目时高亮随之切换 (covers: S2.9; depends: T4)
-- [ ] T9: 离线主流程与边界自检 — acceptance: 断网环境下用两份 `.txt` + 一份 `.docx` 完整走通 T3–T8，控制台无未捕获异常；拖入不支持格式得到可读提示 (covers: S2.1, S2.11; depends: T2, T6, T7, T8)
+- [x] T1: 单页骨架与内联样例 — acceptance: `file://` 双击打开 `prototype/index.html`，点「用样例演示」后原文区出现 `notice-internship.txt` 全部段落，控制台无报错 (covers: S2.1, S2.3)
+- [x] T2: 零依赖 `.docx` 解析与错误兜底 — acceptance: 拖入 `prototype/samples/notice-competition.docx` 后原文区出现正文段落（含「2026 年 11 月 12 日」）；拖入 `.png` 与改扩展名的损坏文件时各自得到中文 toast 提示，页面不白屏 (covers: S2.3, S2.4, S2.11; depends: T1)
+- [x] T3: 规则式抽取器 — acceptance: 载入 `notice-exam-week.txt` 后，「本周内」「下周一之前」两条被标为低置信度并列出原因；「2026 年 12 月 25 日 17:00」一条为高置信度；载入 `notice-internship.txt` 后能抽出交件地点「学院学生事务办公室」 (covers: S2.2, S2.5; depends: T1)
+- [x] T4: 人工确认面板 — acceptance: 未点确认的条目不出现在行动清单；丢弃一条后该卡片消失且不进清单；确认一条低置信度条目后它进入清单；四个字段可编辑并在确认后反映到清单 (covers: S2.6; depends: T3)
+- [x] T5: 行动清单与完成态 — acceptance: 确认多条不同日期条目后按截止升序排列、无日期者排最后；勾选一条后该行出现删除线样式，且导出内容对应行显示 `[x]` (covers: S2.8; depends: T4)
+- [x] T6: 跨文件撞期与去重 — acceptance: 同时载入两份 `.txt` 样例并确认相关条目后，界面出现「同一天有 2 个任务：2026-12-25」提示，相关卡片带撞期标记；动作与截止完全相同的两条被合并为一条并标注来源数 (covers: S2.7; depends: T5)
+- [x] T7: 导出文本清单 — acceptance: 点「导出」后浏览器下载得到 `.txt`，内容含每条的截止、动作、谁、交到哪、出处文件名与段落号；空清单时给出提示而非下载空文件 (covers: S2.10; depends: T5)
+- [x] T8: 出处跳转与高亮 — acceptance: 点击某条目「出处」后原文区滚动到对应段落并高亮，切换到另一条目时高亮随之切换 (covers: S2.9; depends: T4)
+- [x] T9: 离线主流程与边界自检 — acceptance: 断网环境下用两份 `.txt` + 一份 `.docx` 完整走通 T3–T8，控制台无未捕获异常；拖入不支持格式得到可读提示 (covers: S2.1, S2.11; depends: T2, T6, T7, T8)
