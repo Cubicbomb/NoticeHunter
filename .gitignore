@@ -111,3 +111,6 @@ out/
 
 # 演示截图等本地产物
 output/
+
+# 本地 git worktree（多智能体开发工作区）
+.worktrees/
