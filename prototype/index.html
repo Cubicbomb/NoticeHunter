@@ -509,12 +509,19 @@ function sentenceAt(text, idx) {
 
 /* 日期之后的短窗口内取时间与截止标记（避免把全文里任意 HH:MM 挂到这个日期上） */
 function timeNear(text, start) {
-  const win = text.slice(start, start + 40);
+  let win = text.slice(start, start + 40);
+  const stop = win.search(/[。；;！!？?]/);
+  if (stop >= 0) win = win.slice(0, stop);   // 不跨句子取时间
   const tm = RE_TIME.exec(win);
   return tm ? ' ' + pad(+tm[1]) + ':' + tm[2] : '';
 }
+/* 截止标记必须紧跟标点或结尾，否则「考前须知」「提前入场」会被误判成截止 */
 function hasMarker(text, start) {
-  return /之前|前|截止时间|截止/.test(text.slice(start, start + 40));
+  const win = text.slice(start, start + 40);
+  const m = /(之前|前|截止时间|截止)/.exec(win);
+  if (!m) return false;
+  const after = text.charAt(start + m.index + m[0].length);
+  return after === '' || /[，,。.；;！!？?\s]/.test(after);
 }
 /* 用等长空格替换，保持下标对齐，便于回推到原句 */
 function blankOut(text) {
@@ -591,8 +598,7 @@ function extractFromParagraph(text, name, paraIdx, srcIdx) {
   if (dueInfo.vague) reasons.push('截止时间表述模糊：「' + dueInfo.dueRaw + '」');
   if (!dueInfo.hasYear) reasons.push('原文未写年份，已按当前年推算');
   if (!dueInfo.vague && !dueInfo.marker) reasons.push('未明确标注截止（原文未出现「前/之前/截止」）');
-  if (!RE_VERB.test(sentence)) reasons.push('所在句子未找到交件动词');
-  if (!sentence) reasons.push('未定位到具体截止时间所在句');
+  if (!RE_VERB.test(text)) reasons.push('段落内未找到交件动词');
 
   const whereM = RE_WHERE.exec(sentence) || RE_WHERE.exec(text);
   const emailM = RE_EMAIL.exec(sentence);

@@ -126,10 +126,14 @@ function check(name, cond, detail) {
 
   /* T4 丢弃 */
   const beforeDiscard = await page.locator('#reviewList .card').count();
+  const todoBeforeDiscard = await page.locator('#todoList .todo').count();
   await page.locator('#reviewList button[data-act="discard"]').first().click();
   await page.waitForTimeout(120);
   check('T4 丢弃后卡片消失且不进清单',
-    (await page.locator('#reviewList .card').count()) === beforeDiscard - 1);
+    (await page.locator('#reviewList .card').count()) === beforeDiscard - 1
+      && (await page.locator('#todoList .todo').count()) === todoBeforeDiscard,
+    'review ' + beforeDiscard + '->' + (await page.locator('#reviewList .card').count())
+      + ' / todo ' + todoBeforeDiscard + '->' + (await page.locator('#todoList .todo').count()));
 
   /* ===== T6 撞期 ===== */
   for (let i = 0; i < 2; i++) {
