@@ -558,6 +558,7 @@ function selectCandidateParagraphs(paragraphs) {
 
 /* spec S2.3 调用契约：失败一律抛出带具体原因的中文 Error，由调用方回退 */
 async function callLLM(candidates, fileName) {
+  const sid = state.sessionId;
   /* S2.11.2-3：会话预算触顶即拒绝发出新请求（失败的请求同样消耗预算） */
   if (!llmBudgetLeft()) {
     throw new Error('本会话 AI 请求已达上限 ' + LLM_SESSION_REQUEST_CAP + ' 次，已改用规则式抽取');
@@ -581,6 +582,8 @@ async function callLLM(candidates, fileName) {
   const gap = state.llmLastRequestAt
     ? (LLM_MIN_INTERVAL_MS - (Date.now() - state.llmLastRequestAt)) : 0;
   if (gap > 0) await sleep(gap);
+  /* 节流等待期间会话可能被清空：此时不得把计数写进新会话，也不得发出幽灵请求 */
+  if (state.sessionId !== sid) throw new Error('会话已清空，本次 AI 调用已取消');
   state.llmLastRequestAt = Date.now();
   state.llmRequests += 1;   // 含失败请求：它们已经产生了计费风险
   renderAll();              // 刷新设置面板里的计数显示
@@ -913,6 +916,13 @@ async function extractSource(srcIdx, opts) {
       if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
       return;
     }
+    /* 预算已耗尽：直接走规则式，不要先弹一个注定无法兑现的确认框 */
+    if (!llmBudgetLeft()) {
+      state.lastFallback = '本会话 AI 请求已达上限 ' + LLM_SESSION_REQUEST_CAP + ' 次，已改用规则式抽取';
+      if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+      toast(state.lastFallback, 6500);
+      return;
+    }
     const cand = selectCandidateParagraphs(src.paragraphs);
     const candidates = cand.list;
     if (!candidates.length) {
@@ -925,7 +935,9 @@ async function extractSource(srcIdx, opts) {
       const go = window.confirm('该文件有 ' + candidates.length + ' 段候选，将分约 '
         + Math.ceil(candidates.length / LLM_MAX_PARAS) + ' 次请求调用模型，是否继续？');
       if (!go) {
+        state.lastFallback = '候选段落较多，已按你的选择改用规则式抽取';
         if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+        toast(state.lastFallback);
         return;
       }
     }

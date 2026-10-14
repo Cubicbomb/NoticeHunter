@@ -356,10 +356,12 @@ async function walkConfirmExport(page, label) {
   await page.setInputFiles('#file', BIGFILE);          // 65 条候选 → 2 次分批请求
   await page.waitForTimeout(4500);
   const tsT11 = (await stubState()).timestamps || [];
-  const deltaT11 = tsT11.length >= 2 ? (tsT11[tsT11.length - 1] - tsT11[0]) : -1;
-  check('T11 相邻两次请求间隔 ≥ 700ms（实测常量 800ms）',
-    tsT11.length >= 2 && deltaT11 >= 700,
-    'n=' + tsT11.length + ' delta=' + deltaT11 + 'ms');
+  /* 逐对取最小间隔，而不是只看首尾——后者只在恰好 2 次请求时等价 */
+  const adjGapsT11 = tsT11.slice(1).map((t, i) => t - tsT11[i]);
+  const minGapT11 = adjGapsT11.length ? Math.min.apply(null, adjGapsT11) : -1;
+  check('T11 任意相邻两次请求间隔 ≥ 700ms（实测常量 800ms）',
+    adjGapsT11.length >= 1 && minGapT11 >= 700,
+    'n=' + tsT11.length + ' minAdjacent=' + minGapT11 + 'ms');
 
   /* --- T12：大操作确认 --- */
   const manyLines = [];
@@ -380,6 +382,10 @@ async function walkConfirmExport(page, label) {
   check('T12 候选 >200 时弹出确认且含段数',
     !!dialogAsked && /250 段候选/.test(dialogAsked), dialogAsked || 'no dialog');
   check('T12 选择取消后不发任何请求', aT12 === bT12, bT12 + ' → ' + aT12);
+  const cardsT12 = await page.locator('#reviewList .card').count();
+  const ruleT12 = await page.locator('#reviewList .card', { hasText: '规则式' }).count();
+  check('T12 取消后该文件按规则式产出',
+    cardsT12 > 0 && ruleT12 === cardsT12, 'rule=' + ruleT12 + '/' + cardsT12);
   page.off('dialog', onCancel);
   const onAccept = (d) => d.accept();
   page.on('dialog', onAccept);
@@ -401,7 +407,9 @@ async function walkConfirmExport(page, label) {
   while (guard < 80) {
     const cur = await page.evaluate(() => state.llmRequests);
     if (cur >= 60) break;
-    if (await page.locator('#llmRetry').isDisabled()) break;
+    /* 只在真正触顶时退出——「抽取中」也会让按钮禁用，不能据此提前中断 */
+    const btnLabel = (await page.locator('#llmRetry').textContent()).trim();
+    if (btnLabel === '预算已用尽') break;
     await page.click('#llmRetry');
     await page.waitForTimeout(1100);
     guard++;
@@ -447,6 +455,9 @@ async function walkConfirmExport(page, label) {
   await openSettings(page);
   check('T2 刷新后提示回到未配置',
     (await hint(page)) === '尚未配置，当前使用规则式抽取', JSON.stringify(await hint(page)));
+  check('T2 刷新后请求计数归零显示 0 / 60',
+    (await counterEl.textContent()).trim().indexOf('0 / 60') >= 0,
+    (await counterEl.textContent()).trim());
 
   /* ===== 收尾 ===== */
   /* T1：测试桩仅供测试，产品单文件不得引用它（四模式行为由 T3 经真实调用链路间接覆盖） */
