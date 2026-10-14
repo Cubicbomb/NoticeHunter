@@ -117,7 +117,6 @@
 （空。只读操作无需登记。）
 
 ### 待办
-- [ ] **远端功能分支**：`origin/feat/noticehunter-mvp` 已推送，本地已删除，属「已合并的冗余分支」。要彻底清理就 `git push origin --delete feat/noticehunter-mvp` —— 删远端分支属不可逆操作，**等用户确认**
 - [ ] **后续提交习惯**：先更新 `HANDOFF.md` 变更日志，再 `git add` / `commit` / `push`，避免提交内容与交接状态脱节
 - [ ] **向任课老师确认 R-01**：本课程第 5/11/12/15 周对应的具体日期、提交平台与提交格式要求
 - [ ] 确定团队成员名单、专业背景、分工（建议：2 人前端 / 1 人解析与 AI 调用 / 1 人 Prompt 与测试 / 1 人 PPT 视觉 / 1 人文档统筹）
@@ -145,6 +144,7 @@
 - [x] 2026-10-13 修复评审 6 项 minor 中的 5 项并复测通过（第 9 项为 spec 明确要求的噪声卡片，保留）
 - [x] 2026-10-14 用 `prototype/shoot.cjs` 实跑主流程并出 4 张演示截图 + 导出文本（`output/` 已忽略）
 - [x] 2026-10-14 **git 收口**：修 detached HEAD → `--no-ff` 合并功能分支进 `main`（`137d6d0`）→ 根 `.gitignore` 忽略 `.worktrees/`（`d072366`）→ 推送 `main` 与 `feat/noticehunter-mvp` → 移除开发 worktree → 用 `git branch -d` 删掉已合并的本地功能分支
+- [x] 2026-10-14 删除远端冗余分支 `origin/feat/noticehunter-mvp`（用户确认后执行，已不可逆）→ 仓库分支整理完毕
 
 ### 阻塞
 - **R-01** 信息阻塞：具体提交日期与平台未知，排期无法定死
@@ -157,7 +157,7 @@
 ### 下一步（按顺序）
 1. **材料类产出（文档 / PPT / 视频）必须在第 11 周前启动**——这三项占预赛 87.5 分，堆到最后一周做不完。原型与样例已就绪，录屏素材可以立刻开录。
 2. 向任课老师确认 R-01（具体日期与提交平台）。
-3. 远端冗余分支 `origin/feat/noticehunter-mvp` 的处置（见第 4 节待办），等用户确认。
+3. WorkBuddy 的 worktree 与 `workbuddy/main-1927306e` 分支是否也一并清理 —— 见第 7 节 R-12，**等用户确认，别擅自删**。
 4. 可选 LLM 抽取接口与加分项（D-005）排在材料之后，不抢三件套的时间。
 
 ### 请求（写在这里等对应文件释放）
@@ -181,6 +181,7 @@
 | 2026-10-14 12:45 | 主智能体 | 独立评审两轮：首轮 3 项 critical（S2.5 截止标记规则未实现、T6 文案与 spec 不符且测试只 grep 日期、T7 测试同义反复）→ 修复（`2ec137e`）；复审确认**无 critical**，余 6 项 minor | 复审结论：spec compliance / correctness / consistency 三项均通过 |
 | 2026-10-14 12:45 | 主智能体 | 修复 5 项 minor（`6bfb7ee`）：`hasMarker` 要求标记紧跟标点、`timeNear` 不跨句、动词改按段落判定、恢复丢弃断言等 | 复测 **29 PASS / 0 FAIL**，含 `file://` 直开、损坏 `.docx` 中文提示、空清单提示、真实下载事件、控制台零报错 |
 | 2026-10-14 15:46 | 主智能体 | **git 收口**：主目录原为 detached HEAD（停在 `c46c4db`），先 `git checkout main`；`--no-ff` 合并功能分支（`137d6d0`）；根 `.gitignore` 追加 `.worktrees/`（`d072366`）；`push origin main` 与 `push -u origin feat/noticehunter-mvp`；`git worktree remove` 移除开发工作区；`git branch -d` 删除已合并的本地分支 | `git check-ignore -v .worktrees/noticehunter-mvp/prototype/index.html` 命中 `.gitignore:116`；`git status --porcelain -uall` 全空；`HEAD` == `origin/main` == `d072366`（IN SYNC）；`prototype/index.html`、spec、`prompts/P-001` 均在位。**WorkBuddy 的 worktree 与 `workbuddy/main-1927306e` 分支未触碰** |
+| 2026-10-14 15:53 | 主智能体 | 删除远端冗余分支 `origin/feat/noticehunter-mvp`（用户在对话中标注「可以」明确授权，且属不可逆操作）；随后 `git fetch --prune` 清理过期远程引用 | 删前安全校验：`git merge-base --is-ancestor 2a0bea2 main` 退出码 0、`git log main..2a0bea2` 为空（无提交遗留在 main 之外）；删后 `git ls-remote --heads origin` **仅剩 `refs/heads/main` = `7f55822`**；`git status -sb -uall` 干净，本地与 `origin/main` 同步。WorkBuddy 分支仍在，未动 |
 
 ---
 
