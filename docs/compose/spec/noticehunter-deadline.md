@@ -1,9 +1,9 @@
-﻿---
+---
 feature: noticehunter-deadline
 status: verified
 updated: 2026-10-16
 branch: （本轮**未开**分支，理由见文首路径说明）
-commits: （**尚未提交** —— 等用户授权，见 `AGENTS.md` 第 3 节第 5 条与 `HANDOFF.md` D-010）
+commits: `33a614b..a52083b`（**已提交并推送** `origin/main`）
 ---
 
 # 通知猎人 · 截止日汇总 + 交互优化（D-008 顺延项）

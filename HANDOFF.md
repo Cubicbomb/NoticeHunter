@@ -3,23 +3,24 @@
 > **读写规则**：第 1、4、5 节描述**当前状态**，允许覆盖更新；第 2 节是竞赛规则缓存；第 3、6、7 节**只增不改**。
 > 协作规则见 `AGENTS.md`。**新接手的智能体请从第 1 节和第 5 节看起。**
 
-**最后更新**：2026-10-16 18:46 ｜ **更新者**：主智能体（风险审查 → R-17/R-18/R-20/R-16 处置 → git 收口）
+**最后更新**：2026-10-16 ｜ **更新者**：主智能体（文档收口 + 推送，依用户当场授权「推送存储库」）
 
 ---
 
 ## 1. 当前位置
 
-- **阶段**：**LLM 迭代已合并进 `main` 并推送 GitHub；风险审查的可修项已全部修完。** 重心从写代码切换到**竞赛三件套**（预赛 87.5 分，目前仍是 0）。逐项处置结果见第 7 节末尾「R-13 ~ R-20 处置记录」。
-- **`main` 状态**：HEAD = `23e846d`（`--no-ff` 合并提交），与 `origin/main` **0 ahead / 0 behind**；工作区仅剩本文件与 `AGENTS.md` 的本次文档改动（见第 6 节）。
+- **阶段**：**LLM 迭代已合并并推送；风险审查的可修项已修完；下一迭代（deadline 汇总 + 四项交互优化）已实现、验收通过并提交推送（`a52083b`）。** 依 **D-011**，材料与团队事项后置，当前重心是**开发**。
+- **`main` 状态**：HEAD = `a52083b`（deadline 汇总 + 四项交互优化），与 `origin/main` **0 ahead / 0 behind**；本次推送后再无未提交改动（见第 6 节末条）。
 - **功能分支**：`feat/noticehunter-llm`（HEAD `aff9807`）**已合并**，worktree `.worktrees/noticehunter-llm` 干净。分支与 worktree**保留未删**（清理不在「修复风险项」范围内，属待确认的收尾项）。`.worktrees/` 被根 `.gitignore:116` 命中，不会泄漏进仓库。
-- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。`refs/heads/main` = `23e846d`，`refs/tags/v0.1.0-mvp`（annotated，指向 `454668a`）——**两者均已推送**；远端仅 `main` 一个分支。
+- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。`refs/heads/main` = `a52083b`，`refs/tags/v0.1.0-mvp`（annotated，指向 `454668a`）——**两者均已推送**；远端仅 `main` 一个分支。
 - **已有**：竞赛通知 docx（只读）、`AGENTS.md`（第 9 节已按实测校正）、本文件、`README.md`（新增「如何复现验收结果」）、`LICENSE`、`.gitignore`、`.gitattributes`、`prompts/P-001` + `prompts/P-002`、`prompts/README.md`、`prototype/samples/`（3 份模拟样例 + stdlib 生成的 `.docx` 夹具 + 数据说明）、`prototype/index.html` 单文件产品（LLM 主抽取 + 规则兜底 + S2.11 五项硬上限）、`prototype/verify.cjs` + `prototype/verify-llm.cjs` + `prototype/test/fake-llm-server.js` + `prototype/test/load-playwright.cjs` 验收体系、两份功能规格。
 - **还没有**（**这是当前最大的分数缺口**）：
   - **项目文档、方案 PPT、演示视频——三件套 0 件**，合计占预赛 **87.5 分**（`slides/`、`video/` 目录都不存在）
   - 团队成员名单、专业背景、分工（通知要求每队 4–6 人，是报名硬门槛，见 R-14）
   - 指导老师
   - 本课程周次 ↔ 具体日期的对应关系、提交平台
-- **最近一次独立核查（2026-10-16）**：**在合并后的 `main` 上**复跑两套浏览器验收 —— `verify.cjs` **30 PASS / 0 FAIL** + `verify-llm.cjs` **69 PASS / 0 FAIL** = **99 PASS / 0 FAIL**（Llm 路径由修复前的 63 增至 69，新增 6 条 R-17 断言）。隐私与密钥扫描干净：可追踪文件无手机号 / 身份证 / 邮箱 / 真实姓名，无硬编码密钥。
+- **最近一次独立核查（2026-10-16 19:16）**：两套浏览器验收 —— `verify.cjs` **60 PASS / 0 FAIL**（R-17 修复时为 30，D-008 迭代再增 30 条）+ `verify-llm.cjs` **69 PASS / 0 FAIL** = **129 PASS / 0 FAIL**。隐私与密钥扫描干净：可追踪文件无手机号 / 身份证 / 邮箱 / 真实姓名，无硬编码密钥。
+- **提交状态（2026-10-16 19:21 实测）**：产品 + 测试 + 规格已作为 **`a52083b`** 提交并推送，`origin/main` = `a52083b`，`git rev-list --left-right --count origin/main...HEAD` = **0 0**；`refs/tags/v0.1.0-mvp` 仍在远端。**用户在本轮明确授权提交推送**（原话「提交并推送」），满足 `AGENTS.md` 第 3 节第 5 条。
 - **阻塞**：无技术阻塞。剩余为信息阻塞（R-01 提交日期）与组织阻塞（R-14 团队）。
 
 ---
@@ -140,22 +141,33 @@
 - **未授权、本轮未执行**：删除功能分支与 worktree；触碰 WorkBuddy 的 worktree 与 `workbuddy/main-1927306e`（R-12）；删除或改写 `LICENSE`（R-09）。这三项都不属于「修复风险项」，仍需单独确认。
 - **同时解除建分支授权灰区**（R-20 ②）：D-007 当初以「复用 D-006 既定约定」为由建分支，而 `AGENTS.md` 第 3 节第 5 条要求「用户在**当前对话中**明确要求」——严格按条文那是越权的。本条补上本轮的当场授权记录。**下一轮迭代开工前仍须重新当场确认，不得沿用本条**。
 
+### D-011 · 优先级临时反转：先完成项目开发，材料与团队事项后置
+- **日期**：2026-10-16 ｜ **状态**：已定（用户在同轮问答中，对 R-14 / R-13 / R-19 三个问题**统一回答**「不用管这些，先完成项目开发」/「先完成项目开发」）
+- **决策**：把 D-008 顺延的开发项（**deadline 汇总**、**交互优化**）提到当前位置做完；**三件套（R-13）、团队组建（R-14）、演示视频方案（R-19）一律后置**，不再是当前阻塞项。
+- **与既有规则的关系**：`AGENTS.md` 第 4 节写明「**材料 > 功能**」，理由是预赛 87.5 分全在材料上。本条**主动反转**该优先级，依据是用户本轮的直接指令（等同「当前对话中的明确要求」）。**两者冲突，本轮以本条为准**，`AGENTS.md` 不改。
+- **风险自担（如实记录，不要删）**：第 12 周硬截止且 **R-01 的具体日期仍未知**，继续开发必然压缩材料时间。本条只回答「现在做什么」，**不回答**「材料什么时候做」。
+- **回切条件（到点必须自动切回 `AGENTS.md` 第 4 节）**：
+  1. 用户改口；或
+  2. **第 11 周末三件套仍为 0**；或
+  3. R-01 确认的截止日早于预期。
+  三者任一满足，本条失效，**材料立刻回到第一优先级**。把回切条件写在这里，就是为了避免开发做得正顺手时忘了时间。
+
 ---
 
 ## 4. 任务板
 
 ### 进行中（文件占用登记：文件 → 智能体 → 开始时间）
-- （空）——`docs/compose/spec/noticehunter-llm.md` 的登记已于 2026-10-16 释放：该文件已交付（`status: delivered`），并已随合并进入 `main`。
+- （空）——以下三组登记已于 2026-10-16 19:16 释放：`docs/compose/spec/noticehunter-deadline.md`、`prototype/index.html`、`prototype/verify.cjs` + `prototype/verify-llm.cjs`。**实现完成、验收通过，并已作为 `a52083b` 提交推送**（用户当场授权「提交并推送」）。
+
+> **本轮工作区说明**：依 D-011「先完成项目开发」，为避免再走一次建分支授权（D-010 已写明须重新当场确认），**本轮直接在主目录 `main` 的工作树上改，且在用户同意前不 `git add` / `commit` / `push`**（`AGENTS.md` 第 3 节第 5 条）。改动完成并跑过验收后再问要不要提交。
 
 ### 待办
-- [ ] **材料三件套立即启动**（R-13，预赛 87.5 分）：项目文档（Word，25%）、方案 PPT（≤20 页，37.5%）、演示视频（≤5 分钟，25%）。原型已可录屏、`prototype/shoot.cjs` 可出演示截图。**不要再等代码收口——代码已收口**，剩下的全是材料工作
-- [ ] **组建团队 + 联系指导老师**（R-14）：每队 4–6 人是报名硬门槛，且文档「团队分工」与 PPT「团队协作」两章没有名单就结构性地写不出来
-- [ ] **向任课老师确认 R-01**：本课程第 5/11/12/15 周对应的具体日期、提交平台与提交格式要求
-- [ ] **确认 R-19 演示方案再开录**（方案建议已写在 R-19 里）：用本地 stub 录 LLM 路径以保证可重放 + 另存一小段真实 API 片段作技术应用证据 + 在视频与文档中如实标注模拟端点
-- [ ] **补 `prompts/P-002` 的「迭代优化」维度**：评分首项 12.5% 明确要求，现「迭代」0 次命中；素材可由 spec 的 Journey log 第 3、4 条改写
+- [ ] **材料三件套**（R-13，预赛 87.5 分）—— **按 D-011 后置**，回切条件见 D-011（第 11 周末仍为 0 则必须切回第一优先级）
+- [ ] **组建团队 + 联系指导老师**（R-14）—— **按 D-011 后置**
+- [ ] **确认 R-19 演示方案再开录** —— **按 D-011 后置**，方案建议已写在 R-19 里，开录时直接取用
+- [ ] **向任课老师确认 R-01**：本课程第 5/11/12/15 周对应的具体日期、提交平台与提交格式要求（**D-011 的回切条件依赖它**）
+- [ ] **补 `prompts/P-003`（本轮迭代留档）**：评分首项 12.5% 要求「关键 Prompt + 迭代优化 + 测试验证 + 人工核查」；本轮 spec 的 Journey log 已写好 8 条判断，可直接改写
 - [ ] **收尾清理（等用户确认，别擅自做）**：`feat/noticehunter-llm` 分支与 `.worktrees/noticehunter-llm` 已合并、可删；WorkBuddy 的 worktree 与分支见 R-12
-- [ ] **下一迭代（D-008 顺延，勿丢）· deadline 汇总**：按日期聚合已确认条目、倒计时天数、同日分组、最近截止优先
-- [ ] **下一迭代（D-008 顺延，勿丢）· 交互优化**：待确认卡片计数与状态筛选、丢弃可撤销、待确认与清单分屏减少来回滚动、原文区可展开
 - [ ] **后续提交习惯**：先更新 `HANDOFF.md` 变更日志，再 `git add` / `commit` / `push`，避免提交内容与交接状态脱节
 - [ ] 加分项（有余力才做）：多文档合并、日历导出、多人分工、PDF / 图片 OCR
 
@@ -183,6 +195,11 @@
 - [x] 2026-10-16 **修 R-20**：`AGENTS.md` 第 9 节工具链表按当场实测重写（`MIMO_PYTHON` / `MIMO_NODE` / `MIMO_NPM` / `MIMO_RIPGREP_PATH` 均为已设置，并列出预装库版本）
 - [x] 2026-10-16 **修 R-16**：`--no-ff` 合并 `feat/noticehunter-llm` → `main`（`23e846d`，零冲突）→ 推送 `origin/main` 与 `refs/tags/v0.1.0-mvp` → 远端与本地 0 ahead / 0 behind
 - [x] 2026-10-16 **合并后的 `main` 上复跑验收**：`verify.cjs` 30 PASS / 0 FAIL + `verify-llm.cjs` 69 PASS / 0 FAIL = **99 PASS / 0 FAIL**
+- [x] 2026-10-16 **D-011 优先级决策**：用户对 R-13 / R-14 / R-19 三问统一回答「先完成项目开发」，材料与团队后置；**回切条件已写进 D-011**，到期未做材料必须自动切回 `AGENTS.md` 第 4 节
+- [x] 2026-10-16 **写下一迭代规格** `docs/compose/spec/noticehunter-deadline.md`（S1–S3 + T1–T12 + Report + 8 条 Journey log）
+- [x] 2026-10-16 **实现 deadline 汇总**：新增第 5 节与 `renderDeadline()` —— 分组升序、模糊组固定最后、倒计时标签、统计条（**逾期排除已完成**）
+- [x] 2026-10-16 **实现 D-008 四项交互优化**：待确认计数与三态筛选 / 撤销上次丢弃（只回溯一次）/ `.split` 分屏（≥1080px 两列）/ 原文折叠展开（**高亮落在预览外时自动展开**）
+- [x] 2026-10-16 **验收 129 PASS / 0 FAIL**：`verify.cjs` 由 30 增至 **60**（新增 30 条 D-008 断言，日期类断言全部用注入固定日期，不写死天数）+ `verify-llm.cjs` **69** 未回归；随后经用户授权**提交并推送为 `a52083b`**
 
 ### 阻塞
 - **R-01** 信息阻塞：具体提交日期与平台未知，排期无法定死
@@ -193,11 +210,12 @@
 ## 5. 下一步与请求
 
 ### 下一步（按顺序）
-1. **组建团队 + 联系指导老师**（R-14）——阻塞项目文档的「团队分工」与 PPT 的「团队协作」两章，也是通知里「每队 4–6 人」的报名硬门槛。优先级高于一切开发工作。
-2. **材料三件套立刻开工**（R-13，预赛 87.5 分）：建议 PPT（37.5%）先行，文档（25%）与视频（25%）共用同一批截图与解说词。**代码已全部收口并推送，不存在任何技术阻塞**；开录前先按 R-19 定下演示方案。
-3. 向任课老师确认 R-01（具体日期与提交平台）——日期不明则排期始终悬空。
-4. **等用户确认的两件小事**：① `feat/noticehunter-llm` 分支与 `.worktrees/noticehunter-llm` 已合并，可删；② WorkBuddy 的 worktree 与 `workbuddy/main-1927306e` 分支是否一并清理（R-12）。**两者都别擅自删**。
-5. 加分项（多文档合并、日历导出、PDF / 图片 OCR）与 D-008 顺延的下一迭代功能（deadline 汇总、交互优化），**一律排在材料之后**，不抢三件套的时间。
+1. **盯着回切条件**（D-011 的自动触发器）：第 11 周末三件套若仍为 0，或 R-01 确认的截止日早于预期 —— **材料立刻回到第一优先级，开发停止**。到时候照这一条执行，不要因为做得顺手就继续写代码。
+2. **向任课老师确认 R-01**（具体日期与提交平台）—— **回切条件依赖它**，越晚确认越被动。
+3. **继续开发（有余力才做）**：D-008 顺延项已交付，剩下加分项——多文档合并、日历导出、多人分工、PDF / 图片 OCR。任何新功能先过 `AGENTS.md` 第 4 节三问：**对应哪一项预赛指标、能加几分、要花多少人日**，答不上来就不做。
+4. **下次 `commit` / `push` 需重新当场授权** —— 本轮的授权（D-010 与用户回复的「提交并推送」）只覆盖本轮范围，**不得沿用**。
+5. **材料三件套 + 团队组建**（R-13 / R-14）按 D-011 后置，**回切条件一触发就立即启动**。
+6. 收尾清理（等用户确认，别擅自删）：`feat/noticehunter-llm` 分支与 `.worktrees/noticehunter-llm` 已合并可删；WorkBuddy 的 worktree 与分支见 R-12。
 
 ### 请求（写在这里等对应文件释放）
 （空）
@@ -225,6 +243,9 @@
 | 2026-10-16 18:17 | 主智能体 | **风险审查（用户指令「审查项目 · 检查风险」，结果写入第 7 节）**。审查口径：实地复跑测试、隐私与密钥扫描、仓库体检、工具链实测、契约文档与实际状态比对。**只改本文件**（第 1 节覆盖更新、第 4 节释放登记并重排待办、第 6 节追加本条、第 7 节追加 R-13 ~ R-20），**未改任何代码、未合并、未推送、未动 tag** | ① **测试当场复跑：`verify.cjs` 30 PASS / 0 FAIL；`verify-llm.cjs` 63 PASS / 0 FAIL；合计 93 / 0，耗时约 137 秒**（起 `python -m http.server 8761` + `node test/fake-llm-server.js --port=8791`，`NODE_PATH` 指 npx 缓存，跑完已停止进程并确认端口释放）→ 交付报告**未失真**。② 隐私扫描：可追踪文件无手机号 / 身份证 / 邮箱，「学号」字样仅出现在 `example@university.edu.cn` 与打码说明中；竞赛通知原件确认被 `.gitignore:45` 忽略。③ 密钥扫描：无硬编码 Key，`sk-test-*` 属 `verify-llm.cjs` 中的测试假值。④ 仓库体检：`.git` 仅 376 KiB，无大文件；`.playwright-cli/` 历史快照已从 HEAD 清除且已忽略。⑤ 工具链实测：`python` 3.14.7、`node` v24.19.0 正常；**`MIMO_PYTHON` / `MIMO_NODE` / `MIMO_RIPGREP_PATH` 三个变量本机实测均已设置**，与 `AGENTS.md` 第 9 节记载不符（见 R-20）。⑥ 查得 HANDOFF 审查前与事实严重脱节（见 R-15），已在本轮修正 |
 | 2026-10-16 18:35 | 主智能体 | **修 R-17 + R-18**（依 D-010 授权，在 `feat/noticehunter-llm` 上提交 `aff9807`）：R-17 = `state.llmRequests` 改写入 `sessionStorage`（键 `nh.llmRequests`，**只存计数、绝不存密钥**），递增与清空两处同步 `saveBudget()`；spec `noticehunter-llm.md` 补「修订（2026-10-16 追加）」并同步 T8 / T2 / S3 三处验收口径。R-18 = 新增 `prototype/test/load-playwright.cjs`（缺 `playwright-core` 时打印完整复原步骤，而非裸的 `Cannot find module`），`verify.cjs` / `verify-llm.cjs` / `shoot.cjs` 改引用它；`README.md` 增「如何复现验收结果」章节；另修正 README「作品方向待团队确认」（D-001 / D-002 已定，R-02 已解除） | 内联 JS 与三脚本 `node --check` 全过；两套验收 **30 + 69 = 99 PASS / 0 FAIL**（Llm 由 63 → 69，新增 6 条 `R-17` 断言）。`R-17` 实测证据：`sessionStorage` dump 只有 `{"session:nh.llmRequests":"60"}`、**不含密钥**；刷新并重新配置后 stub 请求 `60 → 60` 零新增。`R-18` 缺依赖分支**实测**：把 `NODE_PATH` 指向不存在目录 → 打印中文复原步骤并 `exit 1`（首版 `.nh-test\node_modules` 被 JS 当成转义换行，已改 `\\n` 修正并复验） |
 | 2026-10-16 18:46 | 主智能体 | **修 R-20 + R-16**（依 D-010 授权）：① 按当场实测重写 `AGENTS.md` 第 9 节工具链表；② `--no-ff` 合并 `feat/noticehunter-llm` → `main`，推送 `origin/main` 与 tag `v0.1.0-mvp` | 工具链**先实测后写表**：`MIMO_PYTHON` / `MIMO_NODE` / `MIMO_NPM` / `MIMO_RIPGREP_PATH` / `MIMO_QPDF` / `MIMO_NODE_MODULES` 六项均非空；`MIMO_PYTHON` 实测可 import `python-docx 1.1.2`、`python-pptx 1.0.2`、`openpyxl 3.1.5`、`Pillow 11.1.0`、`pypdf 5.1.0`、`pandas 2.2.3`、`reportlab 4.2.5`、`lxml 5.3.0`。合并零冲突 → `23e846d`；`git ls-remote` 确认 `refs/heads/main` = `23e846d`、`refs/tags/v0.1.0-mvp` 已上远端；`git rev-list --left-right --count origin/main...HEAD` = **0 0**。**在合并后的 `main` 上复跑两套验收：30 + 69 = 99 PASS / 0 FAIL**；跑完已停全部测试进程，8761 / 8791 无 Listen |
+| 2026-10-16 19:16 | 主智能体 | **D-008 顺延项交付**（依 **D-011**「先完成项目开发」；本轮**未开分支**，直接在主目录 `main` 工作树改，**未提交**）：① 写规格 `docs/compose/spec/noticehunter-deadline.md`（S1–S3 + T1–T12）；② 产品实现 **deadline 汇总**（新增第 5 节 + `renderDeadline()` / `dayDiff()` / `diffLabel()`）与**四项交互优化**（`state.reviewFilter` 计数筛选、`state.lastDiscard` 撤销、`.split` 分屏、`state.rawExpanded` 折叠 + 高亮自动穿透）；③ `prototype/verify.cjs` 新增 **30 条** D-008 断言 | `node --check` 对内联脚本与两脚本全过；两套浏览器验收实跑 **`verify.cjs` 60 PASS / 0 FAIL + `verify-llm.cjs` 69 PASS / 0 FAIL = 129 PASS / 0 FAIL**（服务起于主目录 `8761` / `8791`，跑完已停进程、确认无 Listen）。**中途踩到并修掉 5 处失败**：4 处是新测试自身写法（徽章含「项」字需取数字、注入项 id 误传成统计文案、撤销按钮初始态被 T4 既有丢弃污染、T8 前置条件依赖样例分布导致 harness 超时崩溃），1 处是**折叠功能改变了旧断言的前提**（`.docx` 正文落在第 7 段之后 → 改为先展开再断言，**未放宽断言、也未为测试改产品**）。**我自己两次编辑失误（误删 `renderModeBadge` 的 `const conf` 行、切掉注释闭合符）均由 `node --check` 抓出并已修复**。日期类断言一律用注入的 `2000-01-01` 或差值，**不写死运行当天的天数** |
+| 2026-10-16 19:21 | 主智能体 | **经用户当场授权（「提交并推送」）提交并推送本轮成果**：`git add` 产品 + 测试 + 规格 → commit **`a52083b`** → `push origin main`（`HANDOFF.md` 按既有惯例单独提交，先改后提交，保证写进本文的每个提交号都已发生） | `git ls-remote --heads --tags origin` 确认 `refs/heads/main` = **`a52083b`**、`refs/tags/v0.1.0-mvp` 仍在；`git rev-list --left-right --count origin/main...HEAD` = **0 0**；`git show --stat a52083b` = 3 files / +714 −6；提交前 `git status` 确认只暂存了 `prototype/index.html`、`prototype/verify.cjs`、`docs/compose/spec/noticehunter-deadline.md` 三项。**未建任何新分支、未动 tag、未触碰 WorkBuddy 工作区** |
+| 2026-10-16 | 主智能体 | **文档收口并推送**（用户当场授权原话「推送存储库」）：修正第 1 节 `main` 指针（`23e846d` → `a52083b`）、把上轮误放在文件顶部的 a52083b 推送日志归位到第 6 节、本文件与 `docs/compose/spec/noticehunter-deadline.md`（commits 字段改为 `33a614b..a52083b`）一并提交推送 | 提交前 `git status` 仅上述两文件；推送后 `git rev-list --left-right --count origin/main...HEAD` = **0 0**。**未建分支、未动 tag、未触碰 WorkBuddy** |
 
 ---
 
