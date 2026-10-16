@@ -9,6 +9,8 @@
  *   2) 本机已装 Edge（脚本用 channel: 'msedge'，无需下载 Chromium）
  *   3) playwright-core 可被 require 到。本机无项目内 npm 依赖，故通过 NODE_PATH 指向 npx 缓存：
  *        set NODE_PATH=D:\nodejs\node_cache\_npx\<hash>\node_modules
+ *      那串哈希因机器而异。**缺依赖时 `test/load-playwright.cjs` 会打印完整复原步骤**，
+ *      而不是抛一个裸的 Cannot find module——详见该文件头注释（HANDOFF R-18）。
  *
  * 用法：node verify.cjs
  * 输出：每条验收项一行 PASS/FAIL；任一 FAIL 则退出码非 0。
@@ -16,7 +18,7 @@
  * 断言原则：一律调用产品里的真实函数（buildExport / confirmItem）或真实 DOM，
  * 不允许在测试里重写一遍逻辑再断言自己——那样恒为真，测不出回归。
  */
-const { chromium } = require('playwright-core');
+const { chromium } = require('./test/load-playwright.cjs');
 const path = require('path');
 const fs = require('fs');
 
@@ -42,6 +44,13 @@ function check(name, cond, detail) {
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  /* 无 Key 时不得发起任何外部网络请求（AGENTS.md §7 硬要求） */
+  const extReqs = [];
+  const trackExt = (pg) => pg.on('request', (r) => {
+    const u = r.url();
+    if (/^https?:\/\//i.test(u) && u.indexOf('127.0.0.1') < 0 && u.indexOf('localhost') < 0) extReqs.push(u);
+  });
+  trackExt(page);
 
   await page.goto(URL, { waitUntil: 'load' });
 
@@ -261,6 +270,7 @@ function check(name, cond, detail) {
   const errors2 = [];
   page2.on('console', (m) => { if (m.type() === 'error') errors2.push('console: ' + m.text()); });
   page2.on('pageerror', (e) => errors2.push('pageerror: ' + e.message));
+  trackExt(page2);
   await page2.goto(pathToFileURL(path.join(__dirname, 'index.html')).href);
   await page2.click('#sample');
   await page2.waitForTimeout(150);
@@ -272,6 +282,10 @@ function check(name, cond, detail) {
     fPara > 10 && fRaw.indexOf('2026 年 11 月 12 日') >= 0 && errors2.length === 0,
     'paras=' + fPara + ' / errors=' + (errors2.join(';') || 'none'));
   await page2.close();
+
+  /* T7：未配置 key 的两种打开方式都不许发出外部请求 */
+  check('T7 无 Key 时零外部网络请求（只允许 127.0.0.1）',
+    extReqs.length === 0, extReqs.join(' ;; ') || 'clean');
 
   await browser.close();
   fs.unlinkSync(BAD_PNG);

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* 演示截图脚本（一次性，用完可删）：跑通主流程并截下每一步画面。
-   用法：node shoot.cjs   （需本地静态服务器在 8761） */
-const { chromium } = require('playwright-core');
+   用法：node shoot.cjs   （需本地静态服务器在 8761；缺 playwright-core 时
+   test/load-playwright.cjs 会打印复原步骤 —— HANDOFF R-18） */
+const { chromium } = require('./test/load-playwright.cjs');
 const path = require('path');
 const fs = require('fs');
 

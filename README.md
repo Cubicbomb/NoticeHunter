@@ -70,6 +70,46 @@ python -m http.server 8731 --bind 127.0.0.1
 
 ---
 
+## 如何复现验收结果
+
+原型的正确性由**浏览器实测**证明，不靠「应该可以」。两套脚本共 **99 条断言**，预期全部 `PASS / 0 FAIL`：
+
+| 脚本 | 前提 | 覆盖 |
+| --- | --- | --- |
+| `node prototype/verify.cjs` | 只起静态服务器，**不配 Key** | 规则式路径 **30 条**：`.docx` 解析、损坏文件中文提示、人工确认、撞期、导出、`file://` 直开、零外部网络请求 |
+| `node prototype/verify-llm.cjs` | 静态服务器 + 本地 stub | AI 路径 **69 条**：五类故障回退、分批顺序发送、S2.11 五项硬上限、R-17 预算跨刷新保留 |
+
+```bash
+# 1) 起静态服务器（在仓库根，不是 prototype/）
+python -m http.server 8761 --bind 127.0.0.1
+
+# 2) 起本地 OpenAI 兼容桩（只有 verify-llm 需要；产品不引用它）
+node prototype/test/fake-llm-server.js --port=8791
+
+# 3) 指向本机已有的 playwright-core —— 见下方「找不到 playwright-core」
+$env:NODE_PATH = "<你的路径>"
+
+# 4) 跑
+cd prototype
+node verify.cjs
+node verify-llm.cjs
+```
+
+### 找不到 playwright-core 怎么办
+
+`node_modules/` 被 `.gitignore` 排除，仓库也**没有 `package.json`**——这是刻意的，产品必须保持零依赖。代价是测试驱动器只能靠 `NODE_PATH` 指向**本机已有的拷贝**，而那条路径（npx 缓存目录名带哈希）因机器而异。
+
+缺依赖时脚本**不会**抛一个裸的 `Cannot find module 'playwright-core'` 就完事，而是打印完整复原步骤，见 `prototype/test/load-playwright.cjs`：
+
+- **方式一**：复用已有拷贝，仓库仍不引入依赖 —— `npm root -g`，或 npx 缓存 `D:\nodejs\node_cache\_npx\<hash>\node_modules`，设给 `NODE_PATH`
+- **方式二**：装在仓库之外 —— `npm i playwright-core --prefix .nh-test --no-save`，再把 `.nh-test\node_modules` 设给 `NODE_PATH`
+
+浏览器用**本机 Edge**（脚本内 `channel: 'msedge'`），无需另外下载 Chromium。
+
+整套跑完约 **140 秒**，其中约 50 秒是「60 次请求触顶」测试的 800ms 节流代价——那是安全特性的固有成本，不是卡顿。
+
+---
+
 ## 仓库结构
 
 ```
@@ -77,8 +117,12 @@ AGENTS.md              协作与交接契约（规则、边界、验证要求、
 HANDOFF.md             进度真相源（当前位置、决策记录、任务板、变更日志）
 README.md              本文件
 prototype/             可运行原型（纯静态单页）
-  └─ samples/          模拟样例数据与测试夹具（禁止真实隐私数据）
+  ├─ samples/          模拟样例数据与测试夹具（禁止真实隐私数据）
+  ├─ test/             测试设施（fake-llm-server、playwright 加载器）
+  ├─ verify.cjs        规则式路径验收（30 条）
+  └─ verify-llm.cjs    AI 路径验收（69 条）
 prompts/               关键 Prompt 留档（评分项，只增不改）
+docs/compose/spec/     功能规格（含交付报告与已知未修项）
 ```
 
 项目文档、方案 PPT、演示视频等交付物目录，待立项确认后按 `HANDOFF.md` 任务板建立。
@@ -108,7 +152,7 @@ prompts/               关键 Prompt 留档（评分项，只增不改）
 
 见 [`HANDOFF.md`](HANDOFF.md) 第 1 节「当前位置」与第 4 节「任务板」——那是唯一的进度真相源，本文件的描述不会随手更新。
 
-> 作品方向（赛题一 / 《通知猎人》）当前状态为**待团队确认**，见 `HANDOFF.md` 决策记录 D-001 / D-002。确认前上述方案描述可能调整。
+> 作品方向已确认：**赛题一 ·《通知猎人 NoticeHunter》**，见 `HANDOFF.md` 决策记录 D-001 / D-002（2026-10-13 用户确认，对应风险条目 R-02 已解除）。
 
 ---
 

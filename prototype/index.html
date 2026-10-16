@@ -81,6 +81,10 @@
     display: inline-block; background: #fff; border: 1px solid var(--line);
     border-radius: 6px; padding: 2px 8px; margin: 2px 4px 2px 0; color: var(--ink);
   }
+  #llmSettings { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 12px; }
+  #llmSettings summary { cursor: pointer; font-size: 13px; color: var(--muted); user-select: none; }
+  #llmSettings summary:hover { color: var(--accent); }
+  #llmSettings[open] summary { color: var(--accent); font-weight: 600; }
 
   /* 原文区 */
   #rawList { max-height: 300px; overflow: auto; }
@@ -176,6 +180,7 @@
     <h1>通知猎人</h1>
     <span class="en">NoticeHunter</span>
     <span class="badge">离线可用 · 零依赖</span>
+    <span id="modeBadge" class="badge mute">规则式抽取（兜底）</span>
     <p class="tagline">把校园通知、课程大纲、群聊里的碎片要求，转成「谁 / 什么时候前 / 交什么 / 交到哪」的可执行行动清单。</p>
   </header>
 
@@ -192,6 +197,29 @@
       <input id="file" type="file" multiple accept=".txt,.docx">
     </div>
     <div id="sources"></div>
+
+    <details id="llmSettings">
+      <summary>AI 抽取设置（可选，不填则用规则式）</summary>
+      <div class="fields" style="margin-top:12px;grid-template-columns:1fr">
+        <label>API Base URL
+          <input id="llmBase" type="text" placeholder="例如 https://api.example.com/v1" autocomplete="off" spellcheck="false">
+        </label>
+        <label>API Key
+          <input id="llmKey" type="password" placeholder="留空则完全不调用 AI" autocomplete="off">
+        </label>
+        <label>Model
+          <input id="llmModel" type="text" placeholder="模型名，例如 gpt-4o-mini" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+      <div class="row">
+        <button id="llmSave" class="primary">应用设置</button>
+        <button id="llmClear" class="ghost">清除设置</button>
+        <button id="llmRetry">重新尝试 AI 抽取</button>
+        <span id="llmHint" style="font-size:12.5px;color:#6b7280">尚未配置，当前使用规则式抽取</span>
+        <span id="llmCounter" style="font-size:12.5px;color:#6b7280"></span>
+      </div>
+      <p class="empty" style="margin:6px 0 0">三项齐备才算已配置。配置只存在本页内存中，刷新即清空，不写入浏览器存储、不出现在页面源码里。</p>
+    </details>
   </section>
 
   <section>
@@ -216,7 +244,9 @@
   </section>
 
   <footer class="note">
-    本页面不发起任何网络请求，断网可用。刷新后会话清空。演示样例均为模拟数据，不含真实个人信息。
+    <strong>未配置 AI 时，本页面不发起任何网络请求，断网可用。</strong>
+    配置后，仅会把你通知里<strong>含截止时间的段落</strong>发送到你自己填写的接口，用于结构化抽取；
+    密钥只存在于本页内存，刷新即清空，不写入浏览器存储。刷新后会话清空。演示样例均为模拟数据，不含真实个人信息。
   </footer>
 </div>
 
@@ -293,8 +323,49 @@ const SAMPLES = [
   }
 ];
 
+/* ===== 会话预算持久化（2026-10-16 修订 R-17）=====
+   只把「计数」写进 sessionStorage，密钥与配置一律不写。
+   为什么存：此前计数是纯内存，F5 一次即归零——刷新成了唯一能绕开 60 次总量闸门的路径，
+   一个自动重载的失控脚本可以反复刷出新预算。计数落进 sessionStorage 后刷新不再归零，
+   而关闭标签页 / 新开浏览器会话仍自然归零，因此不会跨场次累加到永久卡死。
+   存储不可用（file:// 下的部分浏览器、隐私模式）时静默退回内存，不阻断主流程。 */
+const LLM_BUDGET_KEY = 'nh.llmRequests';
+function loadBudget() {
+  try {
+    const v = Number(sessionStorage.getItem(LLM_BUDGET_KEY));
+    return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+  } catch (e) { return 0; }
+}
+function saveBudget(n) {
+  try { sessionStorage.setItem(LLM_BUDGET_KEY, String(n)); } catch (e) { /* 只能退回内存计数 */ }
+}
+
 /* ===== 会话状态 ===== */
-const state = { sources: [], items: [], seq: 0, highlight: null };
+const state = {
+  sources: [], items: [], seq: 0, highlight: null,
+  extracting: false,     // 单次抽取在途
+  busy: false,           // 整批操作（载入/重试）在途 —— S2.6「禁用重复触发」
+  lastFallback: null,    // 最近一次回退原因；null 表示未回退
+  sessionId: 0,          // 清空会话时自增，用于丢弃在途请求的过期结果
+  llmRequests: loadBudget(), // 会话累计已发出的请求数（含失败），S2.11 预算；刷新保留
+  llmLastRequestAt: 0    // 上一次请求发出时刻，S2.11 最小间隔
+};
+
+/* ===== LLM 配置（只存内存：不写 localStorage/sessionStorage、不进 URL、不进 DOM 属性）===== */
+const llm = { base: '', key: '', model: '' };
+const LLM_TIMEOUT_MS = 15000;   // spec S2.3
+const LLM_MAX_PARAS = 60;       // spec S2.5 单请求段落上限
+/* ===== spec S2.11 硬安全上限（防失控计费）===== */
+const LLM_MAX_TOKENS = 2048;         // 每次请求 max_tokens，封死输出膨胀
+const LLM_MAX_PARA_CHARS = 2000;     // 单段落送模型的字符上限
+const LLM_SESSION_REQUEST_CAP = 60;  // 会话累计请求上限（触顶即停用 AI）
+const LLM_MIN_INTERVAL_MS = 800;     // 两次 HTTP 请求最小间隔
+const LLM_CONFIRM_THRESHOLD = 200;   // 候选段落超过此值先弹确认
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function llmBudgetLeft() { return state.llmRequests < LLM_SESSION_REQUEST_CAP; }
+
+function llmConfigured() { return !!(llm.base && llm.key && llm.model); }
 
 /* ===== DOM ===== */
 const $ = (s) => document.querySelector(s);
@@ -303,6 +374,10 @@ const elDrop = $('#drop'), elPick = $('#pick'), elFile = $('#file'), elSample = 
       elReview = $('#reviewList'), elConflict = $('#conflictBar'), elTodo = $('#todoList'),
       elListEmpty = $('#listEmpty'), elExport = $('#export'), elCopy = $('#copy'),
       elToast = $('#toast');
+/* LLM 相关 DOM：只更新这些，绝不整体重绘 #llmSettings（否则会把 key 序列化进 innerHTML） */
+const elModeBadge = $('#modeBadge'),
+      elLlmBase = $('#llmBase'), elLlmKey = $('#llmKey'), elLlmModel = $('#llmModel'),
+      elLlmHint = $('#llmHint'), elLlmRetry = $('#llmRetry'), elLlmCounter = $('#llmCounter');
 
 let toastTimer = null;
 function toast(msg, ms) {
@@ -406,42 +481,246 @@ function parseTxt(text) {
     .filter(Boolean);
 }
 
-/* ===== 载入入口 ===== */
+/* ===== 载入入口（只负责读文件 → 段落数组，不做抽取）===== */
 async function loadDocxFile(file) {
   let xml;
   try {
     xml = await readDocxXml(await file.arrayBuffer());
   } catch (e) {
     toast('无法解析该 .docx：' + e.message);
-    return false;
+    return null;
   }
   const paragraphs = xmlToParagraphs(xml);
-  if (!paragraphs.length) { toast('文件已读取，但没有解析出正文段落'); return false; }
-  addSource(file.name, paragraphs);
-  return true;
+  if (!paragraphs.length) { toast('文件已读取，但没有解析出正文段落'); return null; }
+  return paragraphs;
 }
 
 async function loadTxtFile(file) {
   let text;
   try { text = await file.text(); }
-  catch (e) { toast('无法读取该文件：' + e.message); return false; }
+  catch (e) { toast('无法读取该文件：' + e.message); return null; }
   const paragraphs = parseTxt(text);
-  if (!paragraphs.length) { toast('文件已读取，但没有解析出正文段落'); return false; }
-  addSource(file.name, paragraphs);
-  return true;
+  if (!paragraphs.length) { toast('文件已读取，但没有解析出正文段落'); return null; }
+  return paragraphs;
 }
 
 async function handleFiles(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
-  let ok = 0;
-  for (const f of files) {
-    const lower = f.name.toLowerCase();
-    if (lower.endsWith('.docx')) { if (await loadDocxFile(f)) ok++; }
-    else if (lower.endsWith('.txt')) { if (await loadTxtFile(f)) ok++; }
-    else { toast('暂不支持该格式：' + f.name + '（请上传 .txt 或 .docx）'); }
+  if (state.extracting || state.busy) { toast('抽取进行中，请稍候再载入'); return; }
+  state.busy = true;
+  try {
+    for (const f of files) {
+      const lower = f.name.toLowerCase();
+      if (!lower.endsWith('.docx') && !lower.endsWith('.txt')) {
+        toast('暂不支持该格式：' + f.name + '（请上传 .txt 或 .docx）');
+        continue;
+      }
+      const paragraphs = lower.endsWith('.docx') ? await loadDocxFile(f) : await loadTxtFile(f);
+      if (!paragraphs) continue;
+      const srcIdx = addSource(f.name, paragraphs);
+      await extractSource(srcIdx);
+    }
+  } finally {
+    state.busy = false;
+    renderAll();
   }
-  if (ok) renderAll();
+}
+
+/* ===== LLM 主抽取（spec noticehunter-llm S2.1 ~ S2.5）===== */
+
+const LLM_SYSTEM_PROMPT = [
+  '你是校园通知结构化抽取器。输入是通知的段落列表，每行以「编号. 正文」给出。',
+  '请抽出其中可执行的待办事项，**只输出一个 JSON 数组，不要任何解释、不要 markdown 代码块**。',
+  '数组元素结构：',
+  '{"action":"交什么或做什么，不含时间与礼貌用语","owner":"动作的执行者，识别不到为 null",',
+  '"where":"交到或发送到的地点/渠道，识别不到为 null",',
+  '"dueRaw":"原文中的时间表述，原样保留","due":"归一化为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm，时间模糊则为 null",',
+  '"sourceIndex":段落编号（整数，必须来自输入，禁止编造）,',
+  '"confidence":"high 或 low","reasons":["低置信度原因，可为空数组"]}',
+  '规则：due 为具体日历日期时 confidence 才能是 high；出现「本周内」「下周三之前」「考试结束后一周内」等模糊表述时 due 必须为 null 且 confidence 为 low。',
+  '注意区分动作的执行者与签字人/审核人：owner 应是办事的人。'
+].join('\n');
+
+/* 模型常把 JSON 包在 ```json 围栏里，先剥掉再解析 */
+function stripFences(s) {
+  let t = String(s).trim();
+  const closed = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(t);
+  if (closed) return closed[1];
+  const open = /^```(?:json)?\s*/i.exec(t);
+  // 未闭合围栏：去掉开头标记并尝试去掉残余收尾，避免整段结果被丢弃
+  if (open) t = t.slice(open[0].length).replace(/\s*```\s*$/, '');
+  return t;
+}
+
+/* 候选段落前置筛选（spec S2.5）：只把含日期或模糊时间词的段落送给模型，
+   规则保证不漏召回，模型负责理解语义。无候选则不发请求。
+   超过单次上限的部分由 extractSource 分批顺序发送，此处不做截断。
+   spec S2.11.2-2：单段落超过 LLM_MAX_PARA_CHARS 时只截断「送模型的副本」，
+   sourceText 与原文区仍保留完整原文，并记录原文长度供卡片标注原因。 */
+function selectCandidateParagraphs(paragraphs) {
+  const out = [];
+  const truncated = {};
+  paragraphs.forEach((text, i) => {
+    if (!detectDue(text)) return;
+    let t = text;
+    if (t.length > LLM_MAX_PARA_CHARS) {
+      truncated[i + 1] = t.length;
+      t = t.slice(0, LLM_MAX_PARA_CHARS);
+    }
+    out.push({ index: i + 1, text: t });
+  });
+  return { list: out, truncated: truncated };
+}
+
+/* spec S2.3 调用契约：失败一律抛出带具体原因的中文 Error，由调用方回退 */
+async function callLLM(candidates, fileName) {
+  const sid = state.sessionId;
+  /* S2.11.2-3：会话预算触顶即拒绝发出新请求（失败的请求同样消耗预算） */
+  if (!llmBudgetLeft()) {
+    throw new Error('本会话 AI 请求已达上限 ' + LLM_SESSION_REQUEST_CAP + ' 次，已改用规则式抽取');
+  }
+
+  const body = {
+    model: llm.model,
+    temperature: 0,
+    max_tokens: LLM_MAX_TOKENS,          /* S2.11.2-1 */
+    messages: [
+      { role: 'system', content: LLM_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: '文件：' + fileName + '\n\n' +
+          candidates.map((c) => c.index + '. ' + c.text).join('\n')
+      }
+    ]
+  };
+
+  /* S2.11.2-4：保证两次请求之间至少间隔 LLM_MIN_INTERVAL_MS（首个请求不延迟） */
+  const gap = state.llmLastRequestAt
+    ? (LLM_MIN_INTERVAL_MS - (Date.now() - state.llmLastRequestAt)) : 0;
+  if (gap > 0) await sleep(gap);
+  /* 节流等待期间会话可能被清空：此时不得把计数写进新会话，也不得发出幽灵请求 */
+  if (state.sessionId !== sid) throw new Error('会话已清空，本次 AI 调用已取消');
+  state.llmLastRequestAt = Date.now();
+  state.llmRequests += 1;   // 含失败请求：它们已经产生了计费风险
+  saveBudget(state.llmRequests);   // 同步落盘，否则刷新即绕过封顶（R-17）
+  renderAll();              // 刷新设置面板里的计数显示
+
+  /* 超时计时器覆盖到「读完响应体」为止——否则已返回头但正文挂起时会永远卡住 */
+  const timeoutMsg = 'AI 请求超时（' + (LLM_TIMEOUT_MS / 1000) + ' 秒），已回退规则式抽取';
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), LLM_TIMEOUT_MS);
+
+  let res;
+  try {
+    res = await fetch(llm.base.replace(/\/+$/, '') + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + llm.key },
+      body: JSON.stringify(body),
+      signal: ctl.signal
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') throw new Error(timeoutMsg);
+    throw new Error('AI 请求未发出（网络错误），已回退规则式抽取');
+  }
+  if (!res.ok) {
+    clearTimeout(timer);
+    throw new Error('AI 接口返回 HTTP ' + res.status + '，已回退规则式抽取');
+  }
+
+  let data;
+  try { data = await res.json(); }
+  catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') throw new Error(timeoutMsg);
+    throw new Error('AI 接口响应不是合法 JSON，已回退规则式抽取');
+  }
+  clearTimeout(timer);
+
+  const content = data && data.choices && data.choices[0] &&
+    data.choices[0].message && data.choices[0].message.content;
+  if (typeof content !== 'string') {
+    throw new Error('AI 响应缺少 choices[0].message.content，已回退规则式抽取');
+  }
+
+  let arr;
+  try { arr = JSON.parse(stripFences(content)); }
+  catch (e) { throw new Error('AI 返回的内容无法解析为 JSON，已回退规则式抽取'); }
+
+  if (!Array.isArray(arr)) throw new Error('AI 返回的不是数组，已回退规则式抽取');
+  if (!arr.length) throw new Error('AI 返回了空数组，已回退规则式抽取');   // spec S2.3
+  return arr;
+}
+
+/* spec S2.4：不信任模型返回，逐字段校验；不合格的丢弃或由规则层修正 */
+function mapLLMEntries(raw, paragraphs, name, srcIdx) {
+  const items = [];
+  let dropped = 0;
+  const maxIdx = paragraphs.length;
+
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') { dropped++; continue; }
+
+    const action = typeof r.action === 'string' ? r.action.trim() : '';
+    if (!action) { dropped++; continue; }
+
+    const idx = Number(r.sourceIndex);
+    if (!Number.isInteger(idx) || idx < 1 || idx > maxIdx) { dropped++; continue; }  // 防幻觉定位
+
+    const reasons = Array.isArray(r.reasons)
+      ? r.reasons.filter((x) => typeof x === 'string' && x.trim())
+      : [];
+
+    const dueRaw = typeof r.dueRaw === 'string' && r.dueRaw.trim() ? r.dueRaw.trim() : null;
+    const dueOk = typeof r.due === 'string' && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(r.due);
+    let due = dueOk ? r.due : null;
+
+    if (r.due && !dueOk) {
+      // 规则层修正：从 dueRaw 重算，失败则置空
+      const rec = dueRaw ? detectDue(dueRaw) : null;
+      if (rec && !rec.vague) due = rec.due;
+      reasons.push('AI 返回的截止时间格式非法，已由规则修正或置空');
+    }
+
+    let confidence;
+    if (r.confidence === 'high' || r.confidence === 'low') {
+      confidence = r.confidence;
+    } else {
+      confidence = 'low';
+      reasons.push('AI 返回的置信度非法，已回落为低置信度');   // spec S2.4
+    }
+    if (!due) confidence = 'low';
+
+    items.push({
+      id: 'it-' + (++state.seq),
+      sourceName: name,
+      sourceIndex: idx,
+      sourceText: paragraphs[idx - 1],
+      srcIdx: srcIdx,
+      action: action,
+      owner: (typeof r.owner === 'string' && r.owner.trim()) ? r.owner.trim() : null,
+      where: (typeof r.where === 'string' && r.where.trim()) ? r.where.trim() : null,
+      due: due,
+      dueRaw: dueRaw,
+      confidence: confidence,
+      reasons: reasons,
+      status: 'pending',
+      mergedFrom: 1,
+      extractor: 'ai'
+    });
+  }
+  return { items: items, dropped: dropped };
+}
+
+/* 规则式抽取的批量入口（兜底路径） */
+function ruleExtractItems(name, paragraphs, srcIdx) {
+  const out = [];
+  paragraphs.forEach((text, i) => {
+    const cand = extractFromParagraph(text, name, i + 1, srcIdx);
+    if (cand) out.push(cand);
+  });
+  return out;
 }
 
 /* ===== 规则式抽取（确定性正则，不调用任何模型）===== */
@@ -622,18 +901,96 @@ function extractFromParagraph(text, name, paraIdx, srcIdx) {
     confidence: reasons.length ? 'low' : 'high',
     reasons: reasons,
     status: 'pending',
-    mergedFrom: 1
+    mergedFrom: 1,
+    extractor: 'rule'
   };
 }
 
+/* 只登记文件，不做抽取——抽取交给 extractSource 统一处理 */
 function addSource(name, paragraphs) {
   const srcIdx = state.sources.length;
   state.sources.push({ name: name, paragraphs: paragraphs });
-  paragraphs.forEach((text, i) => {
-    const cand = extractFromParagraph(text, name, i + 1, srcIdx);
-    if (cand) state.items.push(cand);
-  });
-  toast('已载入 ' + name + '（' + paragraphs.length + ' 段）');
+  return srcIdx;
+}
+
+/* 统一抽取入口：已配置 → 先走 AI；任何失败或未配置 → 回退规则式，主流程永不中断 */
+async function extractSource(srcIdx, opts) {
+  const src = state.sources[srcIdx];
+  if (!src) return;
+  const quiet = !!(opts && opts.quiet);   // 重试时静默：文件并没有被重新载入，且不能盖掉错误提示
+  const sid = state.sessionId;      // 会话被清空后，在途请求不得把条目塞进新会话
+
+  // 重试时只替换仍待确认的条目，不破坏用户已确认 / 已完成的工作
+  state.items = state.items.filter((x) => !(x.srcIdx === srcIdx && x.status === 'pending'));
+
+  state.extracting = true;
+  state.lastFallback = null;
+  renderAll();
+  if (!quiet) toast('已载入 ' + src.name + '（' + src.paragraphs.length + ' 段）');
+
+  const alive = () => state.sessionId === sid;
+  try {
+    if (!llmConfigured()) {
+      if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+      return;
+    }
+    /* 预算已耗尽：直接走规则式，不要先弹一个注定无法兑现的确认框 */
+    if (!llmBudgetLeft()) {
+      state.lastFallback = '本会话 AI 请求已达上限 ' + LLM_SESSION_REQUEST_CAP + ' 次，已改用规则式抽取';
+      if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+      toast(state.lastFallback, 6500);
+      return;
+    }
+    const cand = selectCandidateParagraphs(src.paragraphs);
+    const candidates = cand.list;
+    if (!candidates.length) {
+      // 无截止时间相关段落 → 不发任何请求（spec S2.5），直接规则式
+      if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+      return;
+    }
+    /* S2.11.2-5：候选过多时先确认，避免用户在不知情下打出大量请求 */
+    if (candidates.length > LLM_CONFIRM_THRESHOLD) {
+      const go = window.confirm('该文件有 ' + candidates.length + ' 段候选，将分约 '
+        + Math.ceil(candidates.length / LLM_MAX_PARAS) + ' 次请求调用模型，是否继续？');
+      if (!go) {
+        state.lastFallback = '候选段落较多，已按你的选择改用规则式抽取';
+        if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+        toast(state.lastFallback);
+        return;
+      }
+    }
+    /* spec S2.5：单次请求不超过 LLM_MAX_PARAS，超出分批顺序发送，不截断 */
+    const chunks = [];
+    for (let i = 0; i < candidates.length; i += LLM_MAX_PARAS) {
+      chunks.push(candidates.slice(i, i + LLM_MAX_PARAS));
+    }
+    let raw = [];
+    for (const c of chunks) {
+      if (!alive()) return;      // 会话被清空则立即停止，不再发后续分批
+      raw = raw.concat(await callLLM(c, src.name));
+    }
+    if (!alive()) return;
+
+    const mapped = mapLLMEntries(raw, src.paragraphs, src.name, srcIdx);
+    /* S2.11.2-2：被截断送模型的段落，对应卡片标注原因（原文区仍显示完整段落） */
+    for (const it of mapped.items) {
+      const origLen = cand.truncated[it.sourceIndex];
+      if (origLen) it.reasons.push('原文段落超长（' + origLen + ' 字），已截断送模型');
+    }
+    if (!mapped.items.length) throw new Error('AI 返回的条目经校验后全部被剔除，已回退规则式抽取');
+    state.items.push(...mapped.items);
+    if (mapped.dropped > 0) {
+      toast('AI 返回的 ' + mapped.dropped + ' 条已剔除（来源编号非法或字段缺失）');
+    }
+  } catch (e) {
+    if (!alive()) return;
+    state.lastFallback = e.message;
+    state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+    toast(e.message, 6500);
+  } finally {
+    state.extracting = false;
+    renderAll();
+  }
 }
 
 /* ===== 渲染 ===== */
@@ -672,6 +1029,7 @@ function renderReview() {
     return '<article class="card' + (low ? ' low' : '') + '">'
       + '<div class="card-head">'
       + '<span class="badge' + (low ? ' warn' : '') + '">' + (low ? '低置信度' : '高置信度') + '</span>'
+      + '<span class="badge mute">' + (it.extractor === 'ai' ? 'AI' : '规则式') + '</span>'
       + '<span class="src">' + esc(it.sourceName) + ' · 第 ' + it.sourceIndex + ' 段</span>'
       + '</div>'
       + (it.reasons.length ? '<div class="reasons">' + it.reasons.map((r) => '<span class="chip">' + esc(r) + '</span>').join('') + '</div>' : '')
@@ -745,6 +1103,7 @@ function renderList() {
       + '<div class="todo-action">' + esc(it.action) + '</div>'
       + '<div class="todo-meta">谁：' + esc(it.owner || '待分配') + ' · 交到：' + esc(it.where || '(未识别)') + '</div>'
       + '<div class="todo-badges">'
+      + '<span class="badge mute">' + (it.extractor === 'ai' ? 'AI' : '规则式') + '</span> '
       + (it.conflict ? '<span class="badge warn">同日撞期</span> ' : '')
       + (it.mergedFrom > 1 ? '<span class="badge mute">合并自 ' + it.mergedFrom + ' 个来源</span> ' : '')
       + '<span class="badge mute">' + esc(it.sourceName) + ' 第 ' + it.sourceIndex + ' 段</span>'
@@ -755,7 +1114,37 @@ function renderList() {
   /* 导出按钮始终可点：清单为空时点击会给出提示（S2.11），而非把分支禁掉导致永远触发不到 */
 }
 
+function renderModeBadge() {
+  const conf = llmConfigured();
+  const outOfBudget = conf && !llmBudgetLeft();
+  if (elModeBadge) {
+    let txt;
+    if (!conf) txt = '规则式抽取（兜底）';
+    else if (outOfBudget) txt = 'AI 抽取 · 预算已用尽';        /* S2.11.2-3 */
+    else if (state.lastFallback) txt = 'AI 抽取 · 已回退';
+    else txt = 'AI 抽取';
+    elModeBadge.textContent = txt;
+    elModeBadge.className = 'badge' + (conf ? '' : ' mute');
+  }
+  if (elLlmHint) {
+    elLlmHint.textContent = conf ? '已配置，抽取优先调用 AI' : '尚未配置，当前使用规则式抽取';
+  }
+  /* S2.11.2-6：消耗可见性 */
+  if (elLlmCounter) {
+    elLlmCounter.textContent = '本会话已发 ' + state.llmRequests
+      + ' / ' + LLM_SESSION_REQUEST_CAP + ' 次请求';
+  }
+  if (elLlmRetry) {
+    const busy = state.extracting || state.busy;
+    const pending = busy || outOfBudget;
+    elLlmRetry.disabled = pending;
+    elLlmRetry.textContent = busy ? 'AI 抽取中…'
+      : (outOfBudget ? '预算已用尽' : '重新尝试 AI 抽取');
+  }
+}
+
 function renderAll() {
+  renderModeBadge();
   renderSources();
   renderRaw();
   renderReview();
@@ -866,24 +1255,99 @@ elDrop.addEventListener('drop', (e) => {
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => e.preventDefault());
 
-elSample.addEventListener('click', () => {
+elSample.addEventListener('click', async () => {
+  if (state.extracting || state.busy) { toast('抽取进行中，请稍候'); return; }
+  state.busy = true;
   let added = 0;
-  for (const s of SAMPLES) {
-    if (state.sources.some((x) => x.name === s.name)) continue;
-    const paras = parseTxt(s.text);
-    if (paras.length) { addSource(s.name, paras); added++; }
+  try {
+    for (const s of SAMPLES) {
+      if (state.sources.some((x) => x.name === s.name)) continue;
+      const paras = parseTxt(s.text);
+      if (!paras.length) continue;
+      const idx = addSource(s.name, paras);
+      await extractSource(idx);
+      added++;
+    }
+  } finally {
+    state.busy = false;
+    renderAll();
   }
-  renderAll();
   if (!added) toast('样例已全部载入，无需重复添加');
 });
 
 elClear.addEventListener('click', () => {
+  state.sessionId++;              // 让在途 AI 请求的结果作废
   state.sources = [];
   state.items = [];
   state.highlight = null;
+  state.lastFallback = null;
+  state.llmRequests = 0;          // S2.11.2-3：预算随会话清空归零
+  saveBudget(0);                  // 同步写回，否则刷新后又读回旧值
+  state.llmLastRequestAt = 0;
   renderAll();
   toast('会话已清空');
 });
+
+/* ===== LLM 设置与重试（spec S2.2 / S2.6）=====
+   密钥只写进模块级内存变量 llm，绝不写入 localStorage、URL、DOM 属性或日志。 */
+function applyLlmSettings() {
+  const base = String((elLlmBase && elLlmBase.value) || '').trim().replace(/\/+$/, '');
+  const key = String((elLlmKey && elLlmKey.value) || '').trim();
+  const model = String((elLlmModel && elLlmModel.value) || '').trim();
+
+  if (!base && !key && !model) {
+    llm.base = ''; llm.key = ''; llm.model = '';
+    state.lastFallback = null;
+    renderAll();
+    toast('已清除设置，当前使用规则式抽取');
+    return;
+  }
+  if (!base || !key || !model) {
+    toast('Base URL / API Key / Model 三项必须齐备，缺一项仍使用规则式抽取');
+    renderAll();
+    return;
+  }
+  if (!/^https?:\/\//i.test(base)) {
+    toast('Base URL 必须以 http:// 或 https:// 开头');
+    return;
+  }
+
+  llm.base = base;
+  llm.key = key;
+  llm.model = model;
+  state.lastFallback = null;
+  renderAll();
+  toast('已应用 AI 抽取设置，载入文件时将优先调用模型');
+}
+
+function clearLlmSettings() {
+  llm.base = ''; llm.key = ''; llm.model = '';
+  if (elLlmBase) elLlmBase.value = '';
+  if (elLlmKey) elLlmKey.value = '';
+  if (elLlmModel) elLlmModel.value = '';
+  state.lastFallback = null;
+  renderAll();
+  toast('已清除设置，当前使用规则式抽取');
+}
+
+async function retryAI() {
+  if (!llmConfigured()) { toast('尚未配置，当前使用规则式抽取'); return; }
+  if (!state.sources.length) { toast('还没有已载入的文件'); return; }
+  if (state.extracting || state.busy) { toast('AI 抽取进行中，请稍候'); return; }
+  state.busy = true;
+  try {
+    toast('正在按 AI 重新抽取：已确认的条目会保留；仍待确认的条目会被重新生成，未保存的手动修改会丢失', 6500);
+    for (let i = 0; i < state.sources.length; i++) await extractSource(i, { quiet: true });
+  } finally {
+    state.busy = false;
+    renderAll();
+  }
+}
+
+const elLlmSave = $('#llmSave'), elLlmClearBtn = $('#llmClear');
+if (elLlmSave) elLlmSave.addEventListener('click', applyLlmSettings);
+if (elLlmClearBtn) elLlmClearBtn.addEventListener('click', clearLlmSettings);
+if (elLlmRetry) elLlmRetry.addEventListener('click', retryAI);
 
 elReview.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act]');
