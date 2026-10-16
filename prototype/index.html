@@ -162,6 +162,49 @@
   .todo .link:hover { text-decoration: underline; }
   .empty { color: var(--muted); font-size: 13px; padding: 10px 2px; }
 
+  /* ===== D-008 · 待确认区计数与筛选 ===== */
+  .review-bar {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    flex-wrap: wrap; margin-bottom: 10px;
+    background: var(--accent-soft); border: 1px solid #dbe6ff; border-radius: 8px; padding: 8px 10px;
+  }
+  .review-bar .row { margin-top: 0; }
+  .rcount { font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .fbtn { padding: 5px 10px; font-size: 12.5px; border-radius: 7px; }
+  .fbtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* ===== D-008 · 分屏：宽屏时「待确认」与「行动清单」并排，减少来回滚动 ===== */
+  .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 24px; }
+  @media (min-width: 1080px) {
+    .wrap { max-width: 1180px; }
+    .split { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: start; }
+  }
+
+  /* ===== D-008 · 按截止日汇总 ===== */
+  .stat-row {
+    font-size: 13px; color: var(--ink); background: var(--accent-soft); border: 1px solid #dbe6ff;
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-variant-numeric: tabular-nums;
+  }
+  .stat-row .over { color: var(--warn-ink); font-weight: 600; }
+  .dl-group { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .dl-day { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .dl-date { font-size: 14.5px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .dl-cd { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .dl-cd.over, .dl-cd.today { color: var(--warn-ink); font-weight: 600; }
+  .dl-group.vague .dl-date { color: var(--warn-ink); }
+  .dl-group ul { list-style: none; margin: 9px 0 0; padding: 0; }
+  .dl-group li {
+    display: flex; gap: 8px; align-items: baseline; padding: 6px 0;
+    border-top: 1px dashed var(--line); font-size: 13.5px;
+  }
+  .dl-group li:first-child { border-top: none; }
+  .dl-group li .t { color: var(--accent); font-weight: 600; font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .dl-group li .t.none { color: var(--warn-ink); font-weight: 500; }
+  .dl-group li .m { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .dl-group li .a { flex: 1; min-width: 0; }
+  .dl-group li.done .a { text-decoration: line-through; color: var(--done); }
+  .hint { font-size: 12.5px; color: var(--muted); }
+
   /* toast */
   #toast {
     position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px);
@@ -225,10 +268,24 @@
   <section>
     <h2><span class="n">2</span>原文</h2>
     <div class="panel"><div id="rawList"><p class="empty">还没有载入内容。先拖入一份通知，或点「用样例演示」。</p></div></div>
+    <div class="row" id="rawToggleRow" hidden>
+      <button id="rawToggle" class="ghost">展开全文</button>
+      <span class="hint" id="rawToggleHint"></span>
+    </div>
   </section>
 
+  <div class="split">
   <section>
     <h2><span class="n">3</span>待确认</h2>
+    <div class="review-bar">
+      <span id="reviewCount" class="rcount">待确认 0 条 · 低置信度 0 条</span>
+      <div class="row">
+        <button class="fbtn" data-filter="all" aria-pressed="true">全部</button>
+        <button class="fbtn" data-filter="low" aria-pressed="false">低置信度</button>
+        <button class="fbtn" data-filter="high" aria-pressed="false">高置信度</button>
+        <button id="undoDiscard" class="ghost" disabled>撤销上次丢弃</button>
+      </div>
+    </div>
     <div id="reviewList"><p class="empty">抽取结果会出现在这里。<strong>低置信度的条目会标黄</strong>，必须人工确认后才会进入行动清单。</p></div>
   </section>
 
@@ -241,6 +298,14 @@
       <button id="export" class="primary">导出 .txt</button>
       <button id="copy">复制到剪贴板</button>
     </div>
+  </section>
+  </div>
+
+  <section>
+    <h2><span class="n">5</span>按截止日汇总</h2>
+    <div id="deadlineStats" class="stat-row"></div>
+    <div id="deadlineList"></div>
+    <p id="deadlineEmpty" class="empty">还没有已确认的行动项。先在「待确认」里确认几条，这里就会按截止日聚合、倒计时并排好顺序。</p>
   </section>
 
   <footer class="note">
@@ -347,6 +412,9 @@ const state = {
   busy: false,           // 整批操作（载入/重试）在途 —— S2.6「禁用重复触发」
   lastFallback: null,    // 最近一次回退原因；null 表示未回退
   sessionId: 0,          // 清空会话时自增，用于丢弃在途请求的过期结果
+  reviewFilter: 'all',   // 待确认区筛选：all / low / high —— D-008
+  lastDiscard: null,     // 最近一次丢弃的条目 id，供「撤销上次丢弃」用 —— D-008
+  rawExpanded: false,    // 原文区是否展开全文 —— D-008
   llmRequests: loadBudget(), // 会话累计已发出的请求数（含失败），S2.11 预算；刷新保留
   llmLastRequestAt: 0    // 上一次请求发出时刻，S2.11 最小间隔
 };
@@ -361,6 +429,8 @@ const LLM_MAX_PARA_CHARS = 2000;     // 单段落送模型的字符上限
 const LLM_SESSION_REQUEST_CAP = 60;  // 会话累计请求上限（触顶即停用 AI）
 const LLM_MIN_INTERVAL_MS = 800;     // 两次 HTTP 请求最小间隔
 const LLM_CONFIRM_THRESHOLD = 200;   // 候选段落超过此值先弹确认
+/* ===== D-008 原文折叠 ===== */
+const RAW_PREVIEW_COUNT = 6;         // 折叠态每份来源只渲染多少段
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function llmBudgetLeft() { return state.llmRequests < LLM_SESSION_REQUEST_CAP; }
@@ -374,6 +444,11 @@ const elDrop = $('#drop'), elPick = $('#pick'), elFile = $('#file'), elSample = 
       elReview = $('#reviewList'), elConflict = $('#conflictBar'), elTodo = $('#todoList'),
       elListEmpty = $('#listEmpty'), elExport = $('#export'), elCopy = $('#copy'),
       elToast = $('#toast');
+/* D-008 新增 */
+const elRawToggle = $('#rawToggle'), elRawToggleRow = $('#rawToggleRow'), elRawToggleHint = $('#rawToggleHint'),
+      elReviewCount = $('#reviewCount'), elUndoDiscard = $('#undoDiscard'),
+      elDeadlineStats = $('#deadlineStats'), elDeadlineList = $('#deadlineList'),
+      elDeadlineEmpty = $('#deadlineEmpty');
 /* LLM 相关 DOM：只更新这些，绝不整体重绘 #llmSettings（否则会把 key 序列化进 innerHTML） */
 const elModeBadge = $('#modeBadge'),
       elLlmBase = $('#llmBase'), elLlmKey = $('#llmKey'), elLlmModel = $('#llmModel'),
@@ -1004,28 +1079,85 @@ function renderSources() {
 function renderRaw() {
   if (!state.sources.length) {
     elRaw.innerHTML = '<p class="empty">还没有载入内容。先拖入一份通知，或点「用样例演示」。</p>';
+    if (elRawToggleRow) elRawToggleRow.hidden = true;
     return;
   }
-  let html = '';
+  /* 出处高亮落在折叠预览之外时，必须自动展开全文——否则 jumpTo() 找不到 .para.hl，
+     「点出处 → 原文高亮」这条差异化设计会被静默打断（spec T11）。就地把展开状态提为 true，
+     让按钮文案与实际渲染保持一致，不做"看起来收起、其实展开"的二义状态。 */
+  if (!state.rawExpanded && state.highlight) {
+    const hlSrc = state.sources[state.highlight.srcIdx];
+    if (hlSrc && state.highlight.paraIdx > RAW_PREVIEW_COUNT) state.rawExpanded = true;
+  }
+  const showAll = state.rawExpanded;
+
+  let html = '', total = 0;
   state.sources.forEach((src, si) => {
+    total += src.paragraphs.length;
     html += '<div class="para-hd">' + esc(src.name) + '</div>';
     src.paragraphs.forEach((p, pi) => {
-      const hl = state.highlight && state.highlight.srcIdx === si && state.highlight.paraIdx === pi + 1;
-      html += '<div class="para' + (hl ? ' hl' : '') + '" data-s="' + si + '" data-p="' + (pi + 1) + '">'
+      if (!showAll && pi >= RAW_PREVIEW_COUNT) return;
+      const isHl = state.highlight && state.highlight.srcIdx === si && state.highlight.paraIdx === pi + 1;
+      html += '<div class="para' + (isHl ? ' hl' : '') + '" data-s="' + si + '" data-p="' + (pi + 1) + '">'
             + '<span class="pno">' + (pi + 1) + '</span>' + esc(p) + '</div>';
     });
   });
   elRaw.innerHTML = html;
+
+  if (elRawToggleRow) {
+    const collapsible = total > RAW_PREVIEW_COUNT;
+    elRawToggleRow.hidden = !collapsible;
+    if (collapsible) {
+      const shown = elRaw.querySelectorAll('.para').length;
+      elRawToggle.textContent = showAll ? '收起原文' : '展开全文';
+      if (elRawToggleHint) {
+        elRawToggleHint.textContent = showAll
+          ? '已展开，正在显示全部 ' + total + ' 段'
+          : '已折叠，先显示前 ' + shown + ' 段（共 ' + total + ' 段）';
+      }
+    }
+  }
+}
+
+function filterLabel() {
+  return state.reviewFilter === 'low' ? '低置信度'
+       : state.reviewFilter === 'high' ? '高置信度' : '全部';
 }
 
 function renderReview() {
   const pending = state.items.filter((it) => it.status === 'pending');
+  const lowCount = pending.filter((it) => it.confidence === 'low').length;
+  /* 计数描述的是全量，不随筛选变化 —— 筛选只是换个看法，不是改变待办规模（spec S2.2） */
+  if (elReviewCount) {
+    elReviewCount.textContent = '待确认 ' + pending.length + ' 条 · 低置信度 ' + lowCount + ' 条';
+  }
+  document.querySelectorAll('.fbtn[data-filter]').forEach((b) => {
+    b.setAttribute('aria-pressed', b.getAttribute('data-filter') === state.reviewFilter ? 'true' : 'false');
+  });
+  /* 只有「最近一次丢弃」且该条确实还处于 discarded 时才允许撤销（spec S2.3 边界） */
+  if (elUndoDiscard) {
+    elUndoDiscard.disabled = !state.lastDiscard
+      || !state.items.some((x) => x.id === state.lastDiscard && x.status === 'discarded');
+  }
+
   if (!pending.length) {
     elReview.innerHTML = '<p class="empty">抽取结果会出现在这里。<strong>低置信度的条目会标黄</strong>，必须人工确认后才会进入行动清单。</p>';
     return;
   }
-  elReview.innerHTML = pending.map((it) => {
-    const low = it.confidence === 'low';
+  const isLow = (it) => it.confidence === 'low';
+  const shown = pending.filter((it) => {
+    if (state.reviewFilter === 'low') return isLow(it);
+    if (state.reviewFilter === 'high') return !isLow(it);
+    return true;
+  });
+  if (!shown.length) {
+    elReview.innerHTML = '<p class="empty">当前筛选下没有条目（当前筛选：'
+      + filterLabel() + '，待确认共 ' + pending.length + ' 条）。切换到「全部」可看到它们。</p>';
+    return;
+  }
+
+  elReview.innerHTML = shown.map((it) => {
+    const low = isLow(it);
     return '<article class="card' + (low ? ' low' : '') + '">'
       + '<div class="card-head">'
       + '<span class="badge' + (low ? ' warn' : '') + '">' + (low ? '低置信度' : '高置信度') + '</span>'
@@ -1114,6 +1246,85 @@ function renderList() {
   /* 导出按钮始终可点：清单为空时点击会给出提示（S2.11），而非把分支禁掉导致永远触发不到 */
 }
 
+/* ===== D-008 · 按截止日汇总 =====
+   只读 confirmedItems() 的产物，不另起一套状态；不进导出文本（spec S2.6）。 */
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}/;
+
+function dayDiff(dayStr) {
+  const p = String(dayStr).split('-').map(Number);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(p[0], p[1] - 1, p[2]);
+  /* 用「日期差」而非时间戳差：跨夏令时 / 跨月的 86400000 除法会取整出 -0 这类脏值 */
+  return Math.round((target - today) / 86400000);
+}
+
+function diffLabel(d) {
+  if (d < 0) return '已逾期 ' + (-d) + ' 天';
+  if (d === 0) return '就是今天';
+  if (d === 1) return '明天';
+  return '还有 ' + d + ' 天';
+}
+
+function renderDeadline() {
+  const items = confirmedItems();
+  if (!items.length) {
+    if (elDeadlineStats) elDeadlineStats.innerHTML = '';
+    if (elDeadlineList) elDeadlineList.innerHTML = '';
+    if (elDeadlineEmpty) elDeadlineEmpty.style.display = 'block';
+    return;
+  }
+  if (elDeadlineEmpty) elDeadlineEmpty.style.display = 'none';
+
+  const byDay = new Map();
+  const vague = [];
+  for (const it of items) {
+    const m = DATE_ONLY_RE.exec(it.due || '');
+    if (!m) { vague.push(it); continue; }
+    const day = m[0];
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(it);
+  }
+  const days = [...byDay.keys()].sort();   // 升序 = 最近截止优先
+  if (vague.length) days.push(null);       // 模糊组固定排最后
+
+  /* 逾期与「最近截止」只统计未完成项——已勾完的任务不该把指标弄难看（spec S2.1-4） */
+  const open = items.filter((it) => it.status !== 'done');
+  const overdue = open.filter((it) => DATE_ONLY_RE.test(it.due || '') && dayDiff(it.due) < 0);
+  const nearest = open
+    .filter((it) => DATE_ONLY_RE.test(it.due || ''))
+    .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0))[0];
+
+  if (elDeadlineStats) {
+    elDeadlineStats.innerHTML = '已确认 <strong>' + items.length + '</strong> 项'
+      + (nearest
+          ? ' · 最近截止 <strong>' + esc(nearest.due.slice(0, 10)) + '</strong>（' + diffLabel(dayDiff(nearest.due)) + '）'
+          : ' · 还没有带明确截止日的条目')
+      + (overdue.length ? ' · <span class="over">已逾期 ' + overdue.length + ' 项</span>' : ' · 暂无逾期');
+  }
+
+  if (elDeadlineList) {
+    elDeadlineList.innerHTML = days.map((day) => {
+      const list = day ? byDay.get(day) : vague;
+      const d = day ? dayDiff(day) : null;
+      return '<div class="dl-group' + (day ? '' : ' vague') + '">'
+        + '<div class="dl-day">'
+        + '<span class="dl-date">' + (day ? esc(day) : '截止时间模糊') + '</span>'
+        + (day
+            ? '<span class="dl-cd' + (d < 0 ? ' over' : d === 0 ? ' today' : '') + '">' + diffLabel(d) + '</span>'
+            : '<span class="dl-cd">未识别到具体日期</span>')
+        + '<span class="badge mute">' + list.length + ' 项</span>'
+        + '</div><ul>'
+        + list.map((it) => '<li' + (it.status === 'done' ? ' class="done"' : '') + '>'
+            + '<span class="t' + (it.due ? '' : ' none') + '">' + esc(it.due || (it.dueRaw || '未识别')) + '</span>'
+            + '<span class="a">' + esc(it.action) + '</span>'
+            + '<span class="m">' + esc(it.owner || '待分配') + ' · ' + esc(it.sourceName) + '</span>'
+            + '</li>').join('')
+        + '</ul></div>';
+    }).join('');
+  }
+}
+
 function renderModeBadge() {
   const conf = llmConfigured();
   const outOfBudget = conf && !llmBudgetLeft();
@@ -1149,6 +1360,7 @@ function renderAll() {
   renderRaw();
   renderReview();
   renderList();
+  renderDeadline();
 }
 
 /* ===== 人工确认与状态流转 ===== */
@@ -1281,6 +1493,8 @@ elClear.addEventListener('click', () => {
   state.items = [];
   state.highlight = null;
   state.lastFallback = null;
+  state.lastDiscard = null;       // 否则清空后还能"撤销"出上一个会话的条目（spec S2.3）
+  state.rawExpanded = false;
   state.llmRequests = 0;          // S2.11.2-3：预算随会话清空归零
   saveBudget(0);                  // 同步写回，否则刷新后又读回旧值
   state.llmLastRequestAt = 0;
@@ -1357,7 +1571,12 @@ elReview.addEventListener('click', (e) => {
   const it = findItem(id);
   if (!it) return;
   if (act === 'confirm') confirmItem(id);
-  else if (act === 'discard') { it.status = 'discarded'; toast('已丢弃'); renderAll(); }
+  else if (act === 'discard') {
+    state.lastDiscard = it.id;              // 只记最近一次，可撤销（spec S2.3）
+    it.status = 'discarded';
+    toast('已丢弃，可用「撤销上次丢弃」恢复');
+    renderAll();
+  }
   else if (act === 'src') jumpTo(it.srcIdx, it.sourceIndex);
 });
 
@@ -1400,6 +1619,34 @@ elTodo.addEventListener('click', (e) => {
 
 elExport.addEventListener('click', downloadExport);
 elCopy.addEventListener('click', copyExport);
+
+/* ===== D-008 · 待确认筛选、撤销丢弃、原文展开 ===== */
+const elReviewBar = document.querySelector('.review-bar');
+if (elReviewBar) {
+  elReviewBar.addEventListener('click', (e) => {
+    const f = e.target.closest('button[data-filter]');
+    if (f) {
+      state.reviewFilter = f.getAttribute('data-filter') || 'all';
+      renderAll();
+      return;
+    }
+    if (e.target.closest('#undoDiscard')) {
+      const it = state.lastDiscard ? findItem(state.lastDiscard) : null;
+      if (!it || it.status !== 'discarded') return;
+      it.status = 'pending';
+      state.lastDiscard = null;
+      renderAll();
+      toast('已撤销丢弃');
+    }
+  });
+}
+
+if (elRawToggle) {
+  elRawToggle.addEventListener('click', () => {
+    state.rawExpanded = !state.rawExpanded;
+    renderAll();
+  });
+}
 
 renderAll();
 </script>
