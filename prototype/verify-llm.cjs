@@ -5,12 +5,13 @@
  * 前提（两条命令都要起）：
  *   1) 仓库根：python -m http.server 8761 --bind 127.0.0.1
  *   2) prototype：node test/fake-llm-server.js --port=8791
- *   3) NODE_PATH 指向 playwright-core（本机 npx 缓存）
+ *   3) NODE_PATH 指向 playwright-core（本机 npx 缓存）。缺依赖时
+ *      `test/load-playwright.cjs` 会打印完整复原步骤（HANDOFF R-18）。
  *
  * 用法：node verify-llm.cjs
  * 断言一律操作真实 DOM / 真实 stub，不在测试里重写产品逻辑。
  */
-const { chromium } = require('playwright-core');
+const { chromium } = require('./test/load-playwright.cjs');
 const path = require('path');
 const fs = require('fs');
 
@@ -432,6 +433,48 @@ async function walkConfirmExport(page, label) {
     reqAtCap + ' → ' + reqAfterCap);
   check('T10 toast 说明预算上限', /已达上限 60 次/.test(toastCap), toastCap);
 
+  /* ===== R-17：刷新不得清零会话预算（此前 F5 是唯一能绕开 60 次总量闸门的路径）===== */
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(300);
+  const cAfterReload = (await counterEl.textContent()).trim();
+  check('R-17 刷新后预算计数保留（不因刷新归零）',
+    cAfterReload.indexOf(llmAtCap + ' / 60') >= 0,
+    '期望 ' + llmAtCap + ' / 60，实得 ' + cAfterReload);
+  const persistedDump = await page.evaluate(() => {
+    const out = {};
+    try {
+      let i;
+      for (i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i); out['session:' + k] = sessionStorage.getItem(k);
+      }
+      for (i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i); out['local:' + k] = localStorage.getItem(k);
+      }
+    } catch (e) { out.error = String(e); }
+    return out;
+  });
+  const dumpStr = JSON.stringify(persistedDump);
+  check('R-17 持久化里不含密钥（只存计数）', dumpStr.indexOf(SECRET) < 0, dumpStr);
+  check('R-17 持久化里确实写了预算计数',
+    dumpStr.indexOf('"session:nh.llmRequests":"' + llmAtCap + '"') >= 0, dumpStr);
+
+  /* 刷新后配置本就被清空；重新配置后封顶必须仍然生效，否则刷新等于重置了预算 */
+  await configure(page, STUB, SECRET, 'stub-model');
+  const badgeR17 = await badge(page);
+  check('R-17 重新配置后徽章仍为「AI 抽取 · 预算已用尽」',
+    badgeR17 === 'AI 抽取 · 预算已用尽', badgeR17);
+  const disabledR17 = await page.locator('#llmRetry').isDisabled();
+  check('R-17 重新配置后重试按钮仍被禁用', disabledR17 === true, 'disabled=' + disabledR17);
+
+  /* 最终判据：真的不花钱 —— 触顶后载入文件必须走规则式，stub 一条请求都收不到 */
+  const reqBeforeCapReload = (await stubState()).requests;
+  await page.setInputFiles('#file', SINGLEFILE);
+  await page.waitForTimeout(1500);
+  const reqAfterCapReload = (await stubState()).requests;
+  check('R-17 刷新并重新配置后，触顶依然拦截请求（stub 零新增）',
+    reqAfterCapReload === reqBeforeCapReload,
+    reqBeforeCapReload + ' → ' + reqAfterCapReload);
+
   await page.click('#clear');
   await page.waitForTimeout(350);
   const cClear = (await counterEl.textContent()).trim();
@@ -455,7 +498,7 @@ async function walkConfirmExport(page, label) {
   await openSettings(page);
   check('T2 刷新后提示回到未配置',
     (await hint(page)) === '尚未配置，当前使用规则式抽取', JSON.stringify(await hint(page)));
-  check('T2 刷新后请求计数归零显示 0 / 60',
+  check('T2 刷新后计数保持清空后的 0 / 60（刷新不清零由 R-17 断言单独覆盖）',
     (await counterEl.textContent()).trim().indexOf('0 / 60') >= 0,
     (await counterEl.textContent()).trim());
 

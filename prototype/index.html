@@ -323,6 +323,23 @@ const SAMPLES = [
   }
 ];
 
+/* ===== 会话预算持久化（2026-10-16 修订 R-17）=====
+   只把「计数」写进 sessionStorage，密钥与配置一律不写。
+   为什么存：此前计数是纯内存，F5 一次即归零——刷新成了唯一能绕开 60 次总量闸门的路径，
+   一个自动重载的失控脚本可以反复刷出新预算。计数落进 sessionStorage 后刷新不再归零，
+   而关闭标签页 / 新开浏览器会话仍自然归零，因此不会跨场次累加到永久卡死。
+   存储不可用（file:// 下的部分浏览器、隐私模式）时静默退回内存，不阻断主流程。 */
+const LLM_BUDGET_KEY = 'nh.llmRequests';
+function loadBudget() {
+  try {
+    const v = Number(sessionStorage.getItem(LLM_BUDGET_KEY));
+    return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+  } catch (e) { return 0; }
+}
+function saveBudget(n) {
+  try { sessionStorage.setItem(LLM_BUDGET_KEY, String(n)); } catch (e) { /* 只能退回内存计数 */ }
+}
+
 /* ===== 会话状态 ===== */
 const state = {
   sources: [], items: [], seq: 0, highlight: null,
@@ -330,7 +347,7 @@ const state = {
   busy: false,           // 整批操作（载入/重试）在途 —— S2.6「禁用重复触发」
   lastFallback: null,    // 最近一次回退原因；null 表示未回退
   sessionId: 0,          // 清空会话时自增，用于丢弃在途请求的过期结果
-  llmRequests: 0,        // 会话累计已发出的请求数（含失败），S2.11 预算
+  llmRequests: loadBudget(), // 会话累计已发出的请求数（含失败），S2.11 预算；刷新保留
   llmLastRequestAt: 0    // 上一次请求发出时刻，S2.11 最小间隔
 };
 
@@ -586,6 +603,7 @@ async function callLLM(candidates, fileName) {
   if (state.sessionId !== sid) throw new Error('会话已清空，本次 AI 调用已取消');
   state.llmLastRequestAt = Date.now();
   state.llmRequests += 1;   // 含失败请求：它们已经产生了计费风险
+  saveBudget(state.llmRequests);   // 同步落盘，否则刷新即绕过封顶（R-17）
   renderAll();              // 刷新设置面板里的计数显示
 
   /* 超时计时器覆盖到「读完响应体」为止——否则已返回头但正文挂起时会永远卡住 */
@@ -1264,6 +1282,7 @@ elClear.addEventListener('click', () => {
   state.highlight = null;
   state.lastFallback = null;
   state.llmRequests = 0;          // S2.11.2-3：预算随会话清空归零
+  saveBudget(0);                  // 同步写回，否则刷新后又读回旧值
   state.llmLastRequestAt = 0;
   renderAll();
   toast('会话已清空');
