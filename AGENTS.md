@@ -114,17 +114,28 @@ video/        演示视频、解说词、录屏素材
 
 ## 9. 环境与本机工具链（实测）
 
+> **2026-10-16 校正（对应 HANDOFF R-20）**：本表原记载 `MIMO_PYTHON` / `MIMO_NODE` / `MIMO_NPM` / `MIMO_RIPGREP_PATH` 「❌ 未设置，不存在，不要引用」，**与本机实测不符**——四个变量均已设置，且捆绑运行时里预装了三件套要用的库。留着旧表会让接手方**主动避开最省力的正确工具**。以下每一项都是 2026-10-16 当场跑出来的结果；**再发现对不上时，以实测为准并回来改这张表**。
+
 | 工具 | 状态 | 说明 |
 | --- | --- | --- |
-| `python` | ✅ 3.14.7 | **未安装 python-docx**。`python -m http.server` 可用 |
-| `node` | ✅ v24.19.0 | 可用 |
-| `npm` | ⚠️ 受限 | PowerShell 执行策略拦截 `npm.ps1`，需用 `npm.cmd` 或直接调 node |
-| `MIMO_PYTHON` | ❌ 未设置 | 不存在，不要引用 |
-| `MIMO_NODE` / `MIMO_NPM` | ❌ 未设置 | 同上 |
-| `MIMO_SOFFICE` | ✅ 可用 | LibreOffice，用于 docx/pptx 转 PDF 视觉核对 |
-| `MIMO_RIPGREP_PATH` | ❌ 未设置 | 用系统 `rg` 或内置检索工具 |
+| `python`（系统 PATH） | ✅ 3.14.7 | `python -m http.server` 可用。该解释器**本身没有** python-docx |
+| `node`（系统 PATH） | ✅ v24.19.0 | 可用 |
+| `npm`（系统 PATH） | ⚠️ 受限 | PowerShell 执行策略拦截 `npm.ps1`，需用 `npm.cmd` 或直接调 node |
+| `MIMO_PYTHON` | ✅ 已设置 | 捆绑 Python。**预装且实测可 import**：`python-docx 1.1.2`、`python-pptx 1.0.2`、`openpyxl 3.1.5`、`Pillow 11.1.0`、`pypdf 5.1.0`、`pandas 2.2.3`、`reportlab 4.2.5`、`lxml 5.3.0`。**做项目文档 / PPT 优先用它，不要为这些库 pip install** |
+| `MIMO_NODE` / `MIMO_NPM` | ✅ 已设置 | 捆绑 Node 与 npm。npm 以 `node <MIMO_NPM> <命令>` 调用，绕开 ps1 限制 |
+| `MIMO_NODE_MODULES` | ✅ 已设置 | 预装共享依赖目录，实测含 `pptxgenjs`、`jszip`、`sharp`、`mathjax-full`、`react`、`react-icons`。用法：`NODE_PATH="<该目录>" node <脚本>` |
+| `MIMO_SOFFICE` | ✅ 可用 | LibreOffice，用于 docx/pptx 转 PDF 做**视觉核对**，避免交付排版事故 |
+| `MIMO_QPDF` | ✅ 可用 | qpdf，PDF 压平 / 加解密 / 修复 |
+| `MIMO_RIPGREP_PATH` | ✅ 已设置 | 捆绑 `rg`，内容检索优先用它 |
 
-**读 docx 的正确方法**（本机无 python-docx）：用 PowerShell 解压 zip 读 `word/document.xml`，再剥标签。不要用 `python -c "import docx"`，也不要为此 pip 安装依赖。
+**读写 docx / pptx 的两种方法**（**都不需要 pip 安装任何东西**）：
+
+1. **不装库的老办法仍然可用**：PowerShell 解压 zip 读 `word/document.xml`，再剥标签。适合「只读一份文档、不引依赖」的场景。
+2. **推荐（本机已预装）**：调 `MIMO_PYTHON` 跑脚本，`import docx` / `import pptx`。**项目文档（Word，25%）与方案 PPT（37.5%）是预赛主要产出，手写 OOXML 不现实**，应走这条路；用完 `MIMO_SOFFICE` 转 PDF 再渲染成图做视觉核对。
+
+**两条红线不变**：
+- 不为上述能力 `pip install`（也不需要）。
+- `prototype/` 里的浏览器代码**不得依赖任何 Python 库或 npm 产物**——必须在浏览器里零依赖实现（见第 7 节）。
 
 ---
 
