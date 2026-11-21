@@ -3,15 +3,17 @@
 > **读写规则**：第 1、4、5 节描述**当前状态**，允许覆盖更新；第 2 节是竞赛规则缓存；第 3、6、7 节**只增不改**。
 > 协作规则见 `AGENTS.md`。**新接手的智能体请从第 1 节和第 5 节看起。**
 
-**最后更新**：2026-11-21 ｜ **更新者**：主智能体（LLM 抽取精度与体验优化已验收并推送：`66c44b2`，**151 PASS / 0 FAIL**；本文件随后单独提交）
+**最后更新**：2026-11-21 22:15 ｜ **更新者**：主智能体（新增 `slides/` 单页视频开场动效；规则补充项灰调已验收，基线 **159 PASS / 0 FAIL**；本轮改动未提交）
 
 ---
 
 ## 1. 当前位置
 
 - **阶段**：**LLM 抽取路径已按「精度不高、体验很差」做了整轮优化**——重写 system prompt（日期锚点/出处契约/跨段规则/示例）、候选段带上上下文窗口、模型输出五级容错解析、年份与出处按原文校正、同文件去重、空结果不再误回退；体验侧新增进度条+取消、回退常驻提示、结果摘要、连接测试、调用诊断面板。**已提交并推送：`66c44b2`**（本文件随后单独提交）。
-- **`main` 状态**：本轮代码提交 **`66c44b2`**（6 files / +1080 −136），已推送 `origin/main`（`git ls-remote` 确认 `refs/heads/main` = `66c44b2`，`git rev-list --left-right --count origin/main...HEAD` = **0 0**）；本文件随后单独提交并推送，`HEAD` 会再前移一个文档提交。**未建分支、未动 tag。**
-- **最新文档提交（2026-11-21 21:15）**：README 新增「AI 抽取背后」请求解剖并附 `docs/ai-request-example.json`，已提交本地 `main` **`9f68371`**（**仅提交，未推送**）；本文件随后单独提交。
+- **`main` 状态**：本轮提交 **`2f9dedf`**（README 请求解剖补充）、**`e69a993`**（规则条目级补漏 + 灰调，3 files / +171 −18）、**`143bf5d`**（`slides/` 9 files / +1439），连同此前未推送的 `9f68371` / `b6cc6bf` 一并 `git push origin main`；推送后 `git rev-list --left-right --count origin/main...HEAD` = **0 0**。**未建分支、未动 tag。**
+- **已推送的历史提交**：`66c44b2`（2026-11-21 18:35 推送）此前已在远端；本轮把本地领先的所有提交补齐。
+- **最新文档提交（2026-11-21 21:15）**：README 新增「AI 抽取背后」请求解剖并附 `docs/ai-request-example.json`，已提交 **`9f68371`** 并随本轮推送。
+- **本轮新特性（2026-11-21 21:25 起，已提交 `e69a993`）**：**AI 主抽取 + 规则条目级补漏（D-014）**——AI 成功且至少一条有效结果时，对 AI 未覆盖的候选段追加规则条目；补漏强制 `low` + `supplement=true` + 原因「AI 未从本段抽取，由规则补充，请核对」，卡片徽章「规则补充」；AI 返回 `[]`、用户取消、失败回退均不补。**22:15 追加**：规则补充卡片与清单项改为灰调（`#f8f9fa` 底、灰边/灰字、灰色原因 chip），与 AI 结果拉开视觉层级；`verify-llm.cjs` 新增 T23–T26（8 条断言）。
 - **本轮改动（2026-11-21，按失败模式组织，详见 spec S2.12）**：
   1. **Prompt 重写**（`llmSystemPrompt()`）：加入「今天是 YYYY-MM-DD（星期）」、8 条规则（出处逐字、跨段取动作、签字人≠办事人、空结果合法…）、1 条格式示例。原文留档 `prompts/P-003`。
   2. **候选段上下文**：每段候选前后各带 2 段 + 首段（`LLM_CONTEXT_RADIUS`）；切批改为「60 段 + 12000 字符」双上限（`chunkParagraphs()`）。
@@ -20,15 +22,16 @@
   5. **调用层**：`llmRequest()` 拆出，超时 15s→30s，HTTP 错误带服务端说明，新增取消（保留已完成批次）、`#llmTest` 连接测试、`#llmDebug` 诊断（只存内存、不含密钥）。
   6. **UI**：`#aiStatus` 三态状态栏（进行中可取消 / 已回退可重试 / 上次结果摘要）；卡片截止时间 placeholder 缩短。
   7. 验收：`verify-llm.cjs` 新增 T14–T22；`fake-llm-server.js` 支持 `{"raw":"..."}` 直接覆盖返回原文。
-- **最近验收（2026-11-21，主目录）**：**`verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 84 PASS / 0 FAIL = 151 PASS / 0 FAIL**。两条测试均以 danger-full-access 运行（沙箱仍不能写 `prototype/` 子目录，脚本要生成临时夹具），跑完夹具已自删。视觉核对（1440×1100，stub）：状态栏摘要、进度条+取消、连接测试结果、诊断面板均正常，控制台零报错；截图在 `C:\Users\ASUS\AppData\Local\Temp\nh-llm-{review,progress,settings}.png`（临时目录，不随仓库交付）。
+- **最近验收（2026-11-21 22:15，主目录）**：**`verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 92 PASS / 0 FAIL = 159 PASS / 0 FAIL**。两条测试均以 danger-full-access 运行（沙箱仍不能写 `prototype/` 子目录，脚本要生成临时夹具），跑完夹具已自删。本轮新增规则补漏与灰调区分 T23–T26；视觉核对与旧的 151 条基线见下方历史记录。
 - **未验证（必须如实写进项目文档）**：**新 prompt 没有在真实第三方 API 上跑过**（本机无 Key，也不擅自用他人 Key）。已实测的是「模型输出不听话时客户端不再整文件回退」；「prompt 对真实模型的提升」是设计推断。见第 7 节 R-21。
 - **功能分支（未合并）**：`feat/relative-due` @ `.worktrees/relative-due`，基 `40c51fb`。脏文件：`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`docs/compose/spec/noticehunter-relative-due.md`（**未 commit**）。⚠️ 本轮又改了 `index.html` 与 `verify-llm.cjs`，**合并冲突面进一步扩大，必须人工合**（R-22）。
 - **功能内容**：相对时间（本周内/下周X/N天内等）按锚点日推算具体 due；规则+LLM 双路径；推算结果一律 low +「按锚点」。规格 `docs/compose/spec/noticehunter-relative-due.md`（status: delivered）。上次记录验收 145 PASS / 0 FAIL（本轮未复核该 worktree）。
-- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。`refs/heads/main` = **`66c44b2`**（本轮已推送）；本文件随后单独提交并推送。
-- **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`（含「AI 抽取背后」请求解剖）、`LICENSE`、prompts P-001/P-002/**P-003**、`prototype/` 全套、三份功能规格、`docs/ai-request-example.json`（本地 stub 实际捕获的请求体）。
-- **还没有**（**最大分数缺口**）：**项目文档、方案 PPT、演示视频——三件套 0 件**（`slides/`、`video/` 目录都不存在，`docs/` 只有规格与一份请求样例），合计占预赛 **87.5 分**；团队名单、指导老师、提交日期平台（R-01/R-14）仍缺。
+- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。本轮推送后 `origin/main` = 本地 `main`；`.worktrees/` 与 `对话记录/` 未提交。
+- **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`（含「AI 抽取背后」请求解剖）、`LICENSE`、prompts P-001/P-002/**P-003**、`prototype/` 全套、三份功能规格、`docs/ai-request-example.json`（本地 stub 实际捕获的请求体）；**`slides/` 单页视频开场动效**（2026-11-21 新增，1 页 16:9，58 个原生 Fade 自动入场，约 8–9 秒，无点击）。
+- **还没有**（**最大分数缺口**）：**项目文档、完整项目方案 PPT、演示视频——三件套主体仍未做**（`video/` 不存在；`docs/` 只有规格与一份请求样例；`slides/` 目前只有视频开场那 1 页，不构成 ≤20 页的方案 PPT），合计仍占预赛 **87.5 分**；团队名单、指导老师、提交日期平台（R-01/R-14）仍缺。
+- **本轮新增的 `slides/` 状态**：成品 `slides/NoticeHunter-项目介绍-一页动效.pptx` + 末帧预览 `slides/preview-final.png` + 生成/验收脚本。**未在 PowerPoint 真机放映验证**（本机未装 PowerPoint）；LibreOffice 渲染核对通过，`slides/check_pptx.py` **27 PASS / 0 FAIL**（页数、16:9、58 条动画结构、无 click 触发、时间轴、数据披露）。
 - **阻塞**：无技术阻塞。合并/提交/推送需用户当场授权（AGENTS §3.5）。
-- **时间提醒（必须看）**：今天是 **2026-11-21**，竞赛通知落款 2026-10-10、第 12 周为硬截止。**D-011 的回切条件（第 11 周末三件套仍为 0 → 材料立刻回到第一优先级）很可能已经触发**，但 R-01 的具体日期仍未确认。是否立即停开发、转做三件套，**待用户拍板**。
+- **时间提醒（必须看）**：今天是 **2026-11-21**，竞赛通知落款 2026-10-10、第 12 周为硬截止。**D-011 的回切条件（第 11 周末三件套仍为 0 → 材料立刻回到第一优先级）按实质仍成立**——现在只完成了一段 1 页视频开场，完整方案 PPT、项目文档、演示视频都还是空的；R-01 的具体日期仍未确认。是否立即停开发、转做三件套，**待用户拍板**。
 
 ---
 
@@ -176,11 +179,22 @@
 - **明确不做**：① 相对时间锚点推算（`feat/relative-due` 分支已有方案，未合并，避免重复实现造成更大冲突）；② 不为炫技引入流式输出 / 多轮对话 / 自动重试；③ 不合并、不推送、不建新分支（AGENTS §3.5 未授权）。
 - **未验证边界**：新 prompt 未在真实第三方 API 上跑过（无可用 Key），见 R-21。
 
+### D-014 · AI 主抽取 + 规则条目级补漏（限定修订 D-007，不推翻）
+- **日期**：2026-11-21 ｜ **状态**：已定（用户在对话中选择「方案 A：条目级补漏」）
+- **背景**：D-007 把规则层限定为「候选筛选 / 字段校验 / 离线兜底」三用。实际运行暴露出一个缺口——AI 成功时规则完全不产出条目，模型漏掉的候选段没有任何兜底；S2.5 的「规则保证不漏」只对候选筛选成立，不对条目召回成立。
+- **决策**：新增规则层第四用——**AI 成功且至少产出一条有效条目后，对 AI 未覆盖的候选段做低置信度补漏**。补漏规则：只补 `sourceIndex` 未被 AI 条目覆盖的段落；强制 `confidence='low'`、`supplement=true`，原因首条固定为「AI 未从本段抽取，由规则补充，请核对」；原文须有交件动词，或至少有地点/责任人（过滤发布日期、落款日期等噪声）；**不改写任何 AI 条目**。
+- **不补的场景**：AI 返回 `[]`（整篇无待办是有效判断，S2.12 / T17）；用户取消；AI 失败整文件回退；AI 条目全部被剔除后回退。S2.11 硬上限、S2.6 整文件回退、S2.9 离线兜底均不变。
+- **理由**：规则是本地零成本，补漏能把「AI 漏抽」这一种最常见缺口补上；限定在段落级 + low + 明确原因，避免规则噪声污染 AI 结果，也保留「AI 为主」的溯源叙事。
+- **被否决的替代**：批次级兜底（失败批次保留 AI、只对失败批次走规则）——会打破 S2.6「不出现半截结果」的既有契约，留待后续单独决策。
+
 ---
 
 ## 4. 任务板
 
 ### 进行中（文件占用登记：文件 → 智能体 → 开始时间）
+- （已释放 2026-11-21 22:15）**规则补充项灰色视觉区分**（`lead`）：占用 `prototype/index.html`、`prototype/verify-llm.cjs`、`docs/compose/spec/noticehunter-llm.md`、`README.md`、`HANDOFF.md`；未触碰 `slides/`。**已实现并验收 159 PASS / 0 FAIL；未提交**，见第 6 节本条。
+- （已释放 2026-11-21 22:10）**一页视频开场 PPT（`slides/`）**（`lead`）：占用 `slides/`、`HANDOFF.md`。已交付 1 页 16:9、58 个原生 Fade、无点击自动播放的项目介绍动效，用于嵌入演示视频；见第 6 节本条。
+- （已释放 2026-11-21 21:25）**AI 主抽取 + 规则条目级补漏（方案 A）**（`lead`）：占用 `prototype/index.html`、`prototype/verify-llm.cjs`、`docs/compose/spec/noticehunter-llm.md`、`README.md`、`HANDOFF.md`。**已实现并验收 158 PASS / 0 FAIL；未提交**，见第 6 节本条。
 - （已释放 2026-11-21 21:05）**README 增加「AI 请求解剖」章节**（`lead`）：占用 `README.md`、`HANDOFF.md`；另新增 `docs/ai-request-example.json`。临时验证脚本 `prototype/test/_capture-request.cjs` 已删除。**只改文档，未改产品代码**，见第 6 节本条。
 - （已释放 2026-11-21 17:05）**LLM 抽取精度与体验优化**（用户直接指令「优化一下LLM方式下的提取功能，现在的精度不高，体验很差」）已完成并验收：`prototype/index.html`、`prototype/verify-llm.cjs`、`prototype/test/fake-llm-server.js`、`docs/compose/spec/noticehunter-llm.md`、`prompts/P-003-LLM抽取精度优化.md`（新建）、`HANDOFF.md` 占用释放。**改动未 commit / push**，见第 6 节最后两条。
 - （已释放 2026-11-21 16:25）「2 原文 / 3 待确认 并排 + 原文内联高亮」已完成并验收，`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`HANDOFF.md` 占用释放；改动**未 commit / push**，见第 6 节最后一条。
@@ -240,13 +254,13 @@
 ## 5. 下一步与请求
 
 ### 下一步（按顺序）
-1. **盯着回切条件**（D-011 的自动触发器）：第 11 周末三件套若仍为 0，或 R-01 确认的截止日早于预期 —— **材料立刻回到第一优先级，开发停止**。到时候照这一条执行，不要因为做得顺手就继续写代码。**（2026-11-21 注：按当前日期该观察点很可能已过，而三件套仍是 0 —— 先问用户是否立即回切，不要自行继续开发。）**
+1. **盯着回切条件**（D-011 的自动触发器）：第 11 周末三件套若仍为 0，或 R-01 确认的截止日早于预期 —— **材料立刻回到第一优先级，开发停止**。到时候照这一条执行，不要因为做得顺手就继续写代码。**（2026-11-21 注：按当前日期该观察点很可能已过，而三件套主体仍是 0；目前仅新增了视频开场的 1 页，先问用户是否立即回切，不要自行继续开发。）**
 2. **向任课老师确认 R-01**（具体日期与提交平台）—— **回切条件依赖它**，越晚确认越被动。
 3. **用真实 Key 验一轮新 prompt（R-21）**：跑 `prototype/samples/` 三份样例，记录「字段正确条数 / 重复条数 / 回退次数 / 耗时」，写进项目文档测试章节。这是本轮唯一未实测的部分。
 4. **合并 `feat/relative-due`（R-22）**：相对时间推算与本轮改的 `index.html`/`verify-llm.cjs` 必然冲突，必须人工合；合并前先复跑两套验收。**合并/推送需用户当场授权。**
 5. **继续开发（有余力才做）**：加分项——多文档合并、日历导出、多人分工、PDF / 图片 OCR。任何新功能先过 `AGENTS.md` 第 4 节三问：**对应哪一项预赛指标、能加几分、要花多少人日**，答不上来就不做。
 6. **下次 `commit` / `push` 需重新当场授权** —— 本轮已按用户原话「提交到main，然后推送到GitHub」提交并推送（`66c44b2` + 本文件文档提交）；下一次仍需重新确认，**不得沿用**。
-7. **材料三件套 + 团队组建**（R-13 / R-14）按 D-011 后置，**回切条件一触发就立即启动**。
+7. **材料三件套 + 团队组建**（R-13 / R-14）按 D-011 后置，**回切条件一触发就立即启动**；视频开场 1 页已完成，**完整方案 PPT（≤20 页）、项目文档、演示视频仍未做**。录屏前先在目标机器用 PowerPoint 真机试放 `slides/NoticeHunter-项目介绍-一页动效.pptx`，确认无点击自动播放。
 8. 收尾清理（等用户确认，别擅自删）：`feat/noticehunter-llm` 分支与 `.worktrees/noticehunter-llm` 已合并可删；WorkBuddy 的 worktree 与分支见 R-12。
 
 ### 请求（写在这里等对应文件释放）
@@ -290,6 +304,9 @@
 | 2026-11-21 17:55 | 主智能体 | **收尾补一处并发守卫**：`#llmTest`（连接测试）在 `state.busy`（多文件载入 / 重试整批）期间也禁用，`testLlmConnection()` 里同样拒绝在抽取在途时启动——否则在文件间空隙点它会造成两次请求并发，破坏 S2.6 的单飞约定 | 内联脚本 `node --check` 通过；**两套验收复跑 `verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 84 PASS / 0 FAIL = 151 PASS / 0 FAIL**。**未提交、未推送** |
 | 2026-11-21 18:35 | 主智能体 | **提交并推送（用户当场授权原话「停吧。然后提交到main，然后推送到GitHub」）**：先停掉 8761 静态服务器与 8791 stub 两个后台 job；`git add` 6 个改动文件 + 新建 `prompts/P-003` → commit **`66c44b2`**（6 files / +1080 −136）→ `git push origin main`；本文件随后单独提交并推送。**未跟踪的 `对话记录/`（非本项目产物）没有提交** | `git ls-remote --heads origin` 确认 `refs/heads/main` = **`66c44b2`**；`git rev-list --left-right --count origin/main...HEAD` = **0 0**；提交只含预期 6 个文件，无 `对话记录/`。**未建分支、未动 tag、未触碰 `.worktrees/` 与 WorkBuddy** |
 | 2026-11-21 21:05 | 主智能体（lead） | **README 增加「AI 抽取背后：一次真实请求长什么样」章节，并新增 `docs/ai-request-example.json`**（用户要求「展示一下 AI 抽取背后是如何运行的，比如向 API 发送了哪些内容」）：① 6 步调用链（解析→筛候选→±2 段上下文→切批→请求→校验）；② 请求头/请求体骨架；③ system prompt 与 user content 的实际内容；④ 22 段样例只送 13 段的解释与 ±2 窗口边界；⑤ 返回后的容错/字段校验/整文件回退；⑥ 七项硬上限与自查方法；⑦ 仓库结构补该 JSON。**只改文档** | 用仓库 stub + Playwright 实跑「配置 → 载入 `notice-internship.txt` → 发请求」，捕获 **1 次** `POST /chat/completions`，请求体写入 `docs/ai-request-example.json`；`JSON.parse` 通过、UTF-8 中文回读正常、文件内无 `sk-`/`Authorization`/密钥；样例 22 段、候选 [3]/[14]/[22]、实送 13 段与文档一致；README 相对链接目标存在。**未改产品代码，未重跑 151 条**；已提交本地 `main` **`9f68371`**（仅提交，未推送），未建分支。 |
+| 2026-11-21 21:25 | 主智能体（lead） | **AI 主抽取 + 规则条目级补漏（用户选择「方案 A」，D-014）**：① 新增 `ruleSupplementItems()`——AI 成功且至少 1 条有效结果时，只对 `sourceIndex` 未被 AI 覆盖的候选段追加规则条目；强制 `low` + `supplement=true` + 原因「AI 未从本段抽取，由规则补充，请核对」；用 `RE_VERB`/`where`/`owner` 过滤发布日期、落款日期等噪声段；AI 已有条目的段落不补、AI 返回 `[]` 不补、取消/失败回退不补；② `extractSource()` 接入补漏并扩展摘要/toast「规则补漏 N 条」；③ 新增 `extractorLabel()`，卡片与清单徽章区分 `AI` / `规则式` / `规则补充`；④ spec 新增 S2.13、S2.1 加 D-014 指针；README 的 6 步链路与返回校验补补漏说明；⑤ `verify-llm.cjs` 新增 T23–T25（7 条），T3 改为「AI 或规则补充」、S2.5 改为只对 AI 条目断言 `mergedFrom`；⑥ 新增 `_supp.txt` 夹具。**未提交** | `node --check` 内联脚本与 `verify-llm.cjs` 全过。**实跑：`verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 91 PASS / 0 FAIL = 158 PASS / 0 FAIL**（起 8761 + 8791；两套均以 danger-full-access 跑，夹具自删）。补漏实测：AI 只覆盖第 1 段时第 2 段以「规则补充 / low」入待确认，AI 条目仍为 high 且字段未变；AI 覆盖两段时零补漏；AI 返回 `[]` 时仍 0 条。**未提交、未推送、未建分支**。 |
+| 2026-11-21 22:10 | 主智能体（lead） | **视频内嵌一页项目介绍动效（用户直接要求「项目介绍 PPT…尽可能短…最好有动画和自动播放」）**：新建 `slides/`，产出 `NoticeHunter-项目介绍-一页动效.pptx`（1 页 16:9，58 个原生 Fade，0–4520 ms 错峰自动播，无点击、无切页），末帧预览 `preview-final.png`，生成脚本 `build_ppt.py` / `make_background.py` / `make_mark.py`，验收脚本 `check_pptx.py`，说明 `README.md`。画面为「只给动作 / 出处可回查 / 人工确认 / 撞期预警」四特点 + 右侧界面示意 + 底部「AI 负责理解 · 规则负责兜底 · 人负责确认」。界面文字取自 `notice-exam-week.txt` 第 14 段模拟通知，并明确标注「界面示意 · 模拟通知」。**只新增 `slides/` 并更新本文件；未改 `prototype/`，未 commit / push。** | `slides/check_pptx.py` **27 PASS / 0 FAIL**：1 页、精确 16:9、58 条 Fade 行结构完整、无 clickEffect、bldLst 全覆盖、时间轴 0→4520 ms 递增、tN id 唯一、无强制 loop、数据披露与第 14 段正确。`office_render` 180 dpi 实渲染末帧，人工核对无溢出/遮挡；导出 1920×1080 预览。**未在 PowerPoint 真机放映验证**（本机未装 PowerPoint）；LibreOffice 渲染通过不等于动画实播通过，已在 `slides/README.md` 与第 1 节写明，正式录屏前需在场试放。 |
+| 2026-11-21 22:15 | 主智能体（lead） | **规则补充项改为灰调视觉层级（用户指令：「AI 抽过后，规则补充部分用更淡的颜色显示，比如灰色、单纯灰调」）**：① `prototype/index.html` 增加 `.card.supplement`（`#f8f9fa` 底 / `#e5e7eb` 边 / `#cbd5e1` 左边 / 灰字）与 `.card.supplement` 下的徽章、原因 chip、字段输入、定位按钮灰调；② 清单 `.todo.supplement` 同步灰调；③ `renderReview()` 卡片与 `renderList()` 清单在 `it.supplement` 时追加 `supplement` 类；④ `verify-llm.cjs` 新增 T26——断言补漏卡片带 `supplement` 类且计算背景为 `rgb(248, 249, 250)`（非白底），让「灰调」不只靠徽章；⑤ spec S2.13 的 UI/验收/计数同步，README 与 HANDOFF 计数改为 92/159。**未提交** | `node --check` 内联脚本与 `verify-llm.cjs` 全过。**实跑：`verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 92 PASS / 0 FAIL = 159 PASS / 0 FAIL**（起 8761 + 8791；两套均以 danger-full-access 跑，夹具自删）。T26 实测 `cls="card low supplement"`、`bg=rgb(248, 249, 250)`、`borderLeft=rgb(203, 213, 225)`。真实 Edge 1440×1100 截图核对：AI 卡片保持黄/白底，规则补充卡片为灰底灰字，徽章/原因 chip 同灰调；控制台零报错。**未提交、未推送、未建分支；未触碰 `slides/`。** |
 
 ---
 
