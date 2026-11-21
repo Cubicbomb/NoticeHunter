@@ -42,7 +42,7 @@ flowchart TD
 | 3. 带上下文 | 同上 | 每个候选段前后各带 2 段，另加首段（标题）；按 `[段号] 正文` 拼给模型 |
 | 4. 切批 | `chunkParagraphs()` | 单请求 ≤60 段、≤12000 字符；单段超 2000 字时只截断「送模型的副本」 |
 | 5. 发请求 | `callLLM()` / `llmRequest()` | `POST {base}/chat/completions`，`temperature: 0`，`max_tokens: 2048` |
-| 6. 收结果 | `parseModelContent()` / `mapLLMEntries()` | 容错解析 JSON；校验 `due` / `sourceIndex` / `action`，按原文校正年份与出处，去重 |
+| 6. 收结果 | `parseModelContent()` / `mapLLMEntries()` / `ruleSupplementItems()` | 容错解析 JSON；校验 `due` / `sourceIndex` / `action`，按原文校正年份与出处，去重；AI 漏掉的候选段由规则补漏（低置信度） |
 
 ### 请求头
 
@@ -125,7 +125,8 @@ Key 只在 `Authorization` 头里：**不进请求体、不进 URL、不写 `loc
 
 1. `parseModelContent()` 五级容错：去围栏 → 括号配对 → 单对象包装 → 截断补齐 → 逐对象抢救；
 2. `mapLLMEntries()` 逐字段校验：`due` 必须匹配日期格式，否则用 `dueRaw` 经规则重算；`sourceIndex` 越界且原文找不到依据就丢弃；`dueRaw` 在原文里找不到依据 → 强制 `low`；同文件按 `action + due + owner` 去重；
-3. 任何一步失败 → 该文件**整体回退规则式**，主流程不中断。
+3. **AI 漏掉的段落由规则补漏**：只在 AI 至少产出一条有效条目时启用；只补 AI 未覆盖的段落，补漏条目强制 `low`、徽章为「规则补充」、**整张卡片用灰调显示**，原因写明「AI 未从本段抽取，由规则补充，请核对」。AI 返回 `[]` 时不补——那是“整篇没有待办”的有效判断；
+4. 任何一步失败 → 该文件**整体回退规则式**，主流程不中断。
 
 ### 硬上限
 
@@ -190,12 +191,12 @@ python -m http.server 8731 --bind 127.0.0.1
 
 ## 如何复现验收结果
 
-原型的正确性由**浏览器实测**证明，不靠「应该可以」。两套脚本共 **151 条断言**，预期全部 `PASS / 0 FAIL`：
+原型的正确性由**浏览器实测**证明，不靠「应该可以」。两套脚本共 **159 条断言**，预期全部 `PASS / 0 FAIL`：
 
 | 脚本 | 前提 | 覆盖 |
 | --- | --- | --- |
 | `node prototype/verify.cjs` | 只起静态服务器，**不配 Key** | 规则式路径 **67 条**：`.docx` 解析、损坏文件中文提示、人工确认、撞期、导出、`file://` 直开、零外部网络请求 |
-| `node prototype/verify-llm.cjs` | 静态服务器 + 本地 stub | AI 路径 **84 条**：五类故障回退、分批顺序发送、S2.11 五项硬上限、R-17 预算跨刷新保留，以及 2026-11-21 新增的解析容错（前言/围栏、单对象、截断抢救）、空结果不回退、年份/出处校正、同文件去重、取消、连接测试 |
+| `node prototype/verify-llm.cjs` | 静态服务器 + 本地 stub | AI 路径 **92 条**：五类故障回退、分批顺序发送、S2.11 五项硬上限、R-17 预算跨刷新保留、2026-11-21 的解析容错（前言/围栏、单对象、截断抢救）、空结果不回退、年份/出处校正、同文件去重、取消、连接测试，以及 **AI 漏段时的规则补漏与灰调区分（T23–T26）** |
 
 ```bash
 # 1) 起静态服务器（在仓库根，不是 prototype/）
@@ -238,7 +239,7 @@ prototype/             可运行原型（纯静态单页）
   ├─ samples/          模拟样例数据与测试夹具（禁止真实隐私数据）
   ├─ test/             测试设施（fake-llm-server、playwright 加载器）
   ├─ verify.cjs        规则式路径验收（67 条）
-  └─ verify-llm.cjs    AI 路径验收（84 条）
+  └─ verify-llm.cjs    AI 路径验收（92 条）
 prompts/               关键 Prompt 留档（评分项，只增不改）
 docs/compose/spec/     功能规格（含交付报告与已知未修项）
 docs/ai-request-example.json  AI 请求体原始捕获（上面「AI 抽取背后」引用）
