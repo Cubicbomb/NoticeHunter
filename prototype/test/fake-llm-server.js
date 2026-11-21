@@ -15,8 +15,9 @@
  *     {"mode":"bad-json"}        200 但 content 不是合法 JSON
  *     {"mode":"timeout"}         挂起不响应（客户端会走超时分支）
  *     {"payload":[...]}          覆盖 ok 模式返回的抽取结果数组
+ *     {"raw":"..."}              直接覆盖 ok 模式的 content 原文（用于前言/围栏/截断用例）
  *     {"reset":true}             全部复位（含请求计数）
- *   GET  /__state     返回 {mode, requests, hasPayload, lastBody}
+ *   GET  /__state     返回 {mode, requests, hasPayload, hasRaw, lastBody}
  *
  * 为什么需要 CORS：页面跑在 127.0.0.1:8761，stub 在 127.0.0.1:8791，
  * 属跨源；带 Authorization 的 POST 会先发 OPTIONS 预检，必须应答。
@@ -28,6 +29,7 @@ const PORT = portArg ? parseInt(portArg.split('=')[1], 10) : 8791;
 
 let mode = 'ok';          // ok | http-500 | bad-json | timeout
 let payload = null;       // 覆盖 ok 模式返回的 content（对象数组）
+let rawContent = null;    // 直接覆盖 content 字符串（优先于 payload）
 let requests = 0;
 let lastBody = null;
 let timestamps = [];      // 每次请求到达的 Date.now()，用于验证 S2.11 最小间隔
@@ -78,7 +80,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && url === '/__state') {
-    json(res, 200, { mode: mode, requests: requests, hasPayload: !!payload, lastBody: lastBody, timestamps: timestamps });
+    json(res, 200, { mode: mode, requests: requests, hasPayload: !!payload,
+      hasRaw: rawContent != null, lastBody: lastBody, timestamps: timestamps });
     return;
   }
 
@@ -89,8 +92,9 @@ const server = http.createServer(async (req, res) => {
     catch (e) { json(res, 400, { error: String(e.message) }); return; }
     if (body.mode) mode = String(body.mode);
     if (Object.prototype.hasOwnProperty.call(body, 'payload')) payload = body.payload;
-    if (body.reset) { mode = 'ok'; payload = null; requests = 0; lastBody = null; timestamps = []; }
-    json(res, 200, { ok: true, mode: mode, hasPayload: !!payload, requests: requests });
+    if (Object.prototype.hasOwnProperty.call(body, 'raw')) rawContent = body.raw;
+    if (body.reset) { mode = 'ok'; payload = null; rawContent = null; requests = 0; lastBody = null; timestamps = []; }
+    json(res, 200, { ok: true, mode: mode, hasPayload: !!payload, hasRaw: rawContent != null, requests: requests });
     return;
   }
 
@@ -105,7 +109,7 @@ const server = http.createServer(async (req, res) => {
 
     const content = mode === 'bad-json'
       ? '这不是合法 JSON {[[[  intentionally broken'
-      : JSON.stringify(payload || DEFAULT_PAYLOAD);
+      : (rawContent != null ? String(rawContent) : JSON.stringify(payload || DEFAULT_PAYLOAD));
 
     json(res, 200, {
       id: 'stub-' + requests,

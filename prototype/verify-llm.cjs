@@ -25,6 +25,9 @@ const BIGFILE = path.join(__dirname, 'test', '_big65.txt');
 const SINGLEFILE = path.join(__dirname, 'test', '_single.txt');   // 1 条候选
 const LONGFILE = path.join(__dirname, 'test', '_long.txt');       // 单段落超 2000 字
 const MANYFILE = path.join(__dirname, 'test', '_many250.txt');    // 250 条候选（触发确认）
+/* 2026-11-21 新增用例素材 */
+const ONEFILE = path.join(__dirname, 'test', '_one.txt');         // 1 段、含明确日期
+const INTERN = path.join(SAMPLES, 'notice-internship.txt');
 
 const results = [];
 function check(name, cond, detail) {
@@ -188,14 +191,16 @@ async function walkConfirmExport(page, label) {
     /无法解析为 JSON/.test(tBad), tBad);
   await walkConfirmExport(page, 'bad-json');
 
-  /* ===== T3 · timeout 回退（单文件，避免两次 15s 串行等待）===== */
+  /* ===== T3 · timeout 回退（单文件，避免两次 30s 串行等待）=====
+     2026-11-21：LLM_TIMEOUT_MS 由 15s 提到 30s（60 段 + 结构化 JSON 的请求经常 15s 不够），
+     本项等待时间随之由 16.5s 提到 31.5s。 */
   await page.click('#clear');
   await page.waitForTimeout(150);
   await page.setInputFiles('#file', path.join(SAMPLES, 'notice-internship.txt'));
   await page.waitForTimeout(700);
   await ctl({ mode: 'timeout' });
   await page.click('#llmRetry');
-  await page.waitForTimeout(16500);
+  await page.waitForTimeout(31500);
   const tTo = await toastOf(page);
   check('T3 超时触发含「超时」的中文提示',
     /超时/.test(tTo) && /回退/.test(tTo), tTo);
@@ -260,8 +265,141 @@ async function walkConfirmExport(page, label) {
   await page.waitForTimeout(300);
   const listText = await page.locator('#todoList').innerText();
   check('T6 清单条目显示来源标注', /AI|规则式/.test(listText), listText.replace(/\s+/g, ' ').slice(0, 60));
+  /* T6 重试按钮在空闲时可用 */
   check('T6 重试按钮在空闲时可用',
     !(await page.locator('#llmRetry').isDisabled()), 'disabled=' + await page.locator('#llmRetry').isDisabled());
+
+  /* ==================== 2026-11-21 · 解析容错与字段补正（T14–T22） ==================== */
+  const Y = new Date().getFullYear();
+  const setRaw = (s) => ctl({ mode: 'ok', payload: null, raw: s });
+  const lastItems = (page) => page.evaluate(() => state.items.map((x) => ({
+    action: x.action, due: x.due, idx: x.sourceIndex, confidence: x.confidence,
+    mergedFrom: x.mergedFrom, reasons: x.reasons, extractor: x.extractor
+  })));
+  const loadFresh = async (page, file, wait) => {
+    await page.click('#clear');
+    await page.waitForTimeout(200);
+    await page.setInputFiles('#file', file);
+    await page.waitForTimeout(wait || 1800);
+  };
+  fs.writeFileSync(ONEFILE, '请于 2027 年 10 月 1 日前将材料交至测试地点。\n', 'utf8');
+
+  /* T14：前言 + markdown 围栏 —— 真实模型最常见的两种「不听话」 */
+  await setRaw('好的，以下是抽取结果：\n```json\n[{"action":"带前言的条目","owner":null,"where":null,'
+    + '"dueRaw":"2026 年 11 月 5 日","due":"2026-11-05","sourceIndex":14,'
+    + '"confidence":"high","reasons":[]}]\n```\n共 1 条。');
+  await loadFresh(page, INTERN);
+  const t14 = await lastItems(page);
+  check('T14 模型带前言/围栏时仍能解析出条目',
+    t14.length === 1 && t14[0].action === '带前言的条目', JSON.stringify(t14.map((x) => x.action)));
+  check('T14 未因内容解析失败而回退',
+    (await badge(page)) === 'AI 抽取', await badge(page));
+
+  /* T15：单个对象而不是数组 */
+  await setRaw('{"action":"单对象条目","owner":"甲","where":"乙","dueRaw":"2026 年 11 月 5 日",'
+    + '"due":"2026-11-05","sourceIndex":14,"confidence":"high","reasons":[]}');
+  await page.click('#llmRetry');
+  await page.waitForTimeout(2500);
+  const t15 = await lastItems(page);
+  check('T15 模型返回单个对象时自动包装为数组',
+    t15.length === 1 && t15[0].action === '单对象条目', JSON.stringify(t15.map((x) => x.action)));
+
+  /* T16：输出被截断（max_tokens）——抢救已完整的对象，而不是整文件回退 */
+  await setRaw('[{"action":"截断保留 A","owner":null,"where":null,"dueRaw":"2026 年 11 月 5 日",'
+    + '"due":"2026-11-05","sourceIndex":14,"confidence":"high","reasons":[]},'
+    + '{"action":"截断保留 B","owner":null,"where":null,"dueRaw":"2026 年 11 月 5 日",'
+    + '"due":"2026-11-05","sourceIndex":14,"confidence":"high","reasons":[]},'
+    + '{"action":"被截断的一');
+  await page.click('#llmRetry');
+  await page.waitForTimeout(2500);
+  const t16 = await lastItems(page);
+  check('T16 输出被截断时抢救出已完整的条目（未整文件回退）',
+    t16.length === 2 && t16.some((x) => x.action === '截断保留 A')
+      && t16.some((x) => x.action === '截断保留 B'),
+    JSON.stringify(t16.map((x) => x.action)) + ' | ' + await badge(page));
+
+  /* T17：空数组是有效结果 —— 该文件用规则式会产出 1 条，正好用来区分「AI 空结果」与「回退」 */
+  await setRaw('[]');
+  await loadFresh(page, ONEFILE);
+  const t17 = await lastItems(page);
+  const statusT17 = (await page.locator('#aiStatus').innerText()).trim();
+  check('T17 AI 返回空数组时不回退规则式（条目为 0，而非规则式的 1 条）',
+    t17.length === 0, 'items=' + t17.length + ' | ' + JSON.stringify(t17.map((x) => x.extractor)));
+  check('T17 状态栏说明 AI 未发现可执行事项',
+    /没有发现可执行事项/.test(statusT17), statusT17);
+
+  /* T18 + T19：年份校正 + 出处校正（模型看不到「今天」，会给出过期年份；也会把动作段当出处） */
+  await loadFresh(page, INTERN);
+  const duePara = await page.evaluate(() => {
+    const p = state.sources[0].paragraphs;
+    const i = p.findIndex((t) => t.indexOf('2026 年 11 月 5 日') >= 0);
+    return i + 1;
+  });
+  await setRaw('[{"action":"年份校正条目","owner":null,"where":null,"dueRaw":"11 月 5 日",'
+    + '"due":"2024-11-05","sourceIndex":' + duePara + ',"confidence":"high","reasons":[]},'
+    + '{"action":"出处校正条目","owner":null,"where":null,"dueRaw":"2026 年 11 月 5 日",'
+    + '"due":"2026-11-05 17:00","sourceIndex":1,"confidence":"high","reasons":[]}]');
+  await page.click('#llmRetry');
+  await page.waitForTimeout(2500);
+  const t18 = await lastItems(page);
+  const yearItem = t18.find((x) => x.action === '年份校正条目');
+  check('T18 原文没写年份时，把模型给的过期年份校正到当前年',
+    !!yearItem && String(yearItem.due).indexOf(Y + '-11-05') === 0
+      && yearItem.reasons.join('').indexOf('不一致') >= 0,
+    JSON.stringify(yearItem));
+  const locItem = t18.find((x) => x.action === '出处校正条目');
+  check('T19 出处段号按原文实际位置校正（不再指向模型声称的第 1 段）',
+    !!locItem && locItem.idx === duePara
+      && locItem.reasons.join('').indexOf('校正为第 ' + duePara + ' 段') >= 0,
+    JSON.stringify(locItem) + ' | 应在第 ' + duePara + ' 段');
+  const cardAtDue = await page.locator('#reviewList .card[data-para="' + duePara + '"]').count();
+  check('T19 校正后的卡片都指向原文里真正含截止时间的那一段',
+    cardAtDue === t18.length, 'cards@' + duePara + '=' + cardAtDue + ' items=' + t18.length);
+
+  /* T20：同文件内重复条目只保留一条 */
+  await setRaw('[{"action":"重复条目","owner":"甲","where":"乙","dueRaw":"2026 年 11 月 5 日",'
+    + '"due":"2026-11-05","sourceIndex":' + duePara + ',"confidence":"high","reasons":[]},'
+    + '{"action":"重复条目","owner":"甲","where":"乙","dueRaw":"2026 年 11 月 5 日",'
+    + '"due":"2026-11-05","sourceIndex":' + duePara + ',"confidence":"high","reasons":[]}]');
+  await page.click('#llmRetry');
+  await page.waitForTimeout(2500);
+  const t20 = await lastItems(page);
+  const dupItems = t20.filter((x) => x.action === '重复条目');
+  check('T20 同文件内重复条目合并为 1 条',
+    dupItems.length === 1 && dupItems[0].mergedFrom === 2,
+    JSON.stringify(t20.map((x) => ({ a: x.action, m: x.mergedFrom }))));
+
+  /* T21：取消 —— 请求挂起时必须能中断，且不回退规则式 */
+  await ctl({ mode: 'ok' });
+  await loadFresh(page, INTERN);
+  await ctl({ mode: 'timeout' });
+  await page.click('#llmRetry');
+  await page.waitForTimeout(1200);
+  const cancelBtn = page.locator('#aiStatus button[data-act="cancelAi"]');
+  const hasCancel = await cancelBtn.count();
+  if (hasCancel) await cancelBtn.click();
+  await page.waitForTimeout(900);
+  const t21 = await lastItems(page);
+  check('T21 抽取在途时状态栏出现「取消」按钮', hasCancel === 1, 'count=' + hasCancel);
+  check('T21 取消后不产生条目、也不回退规则式',
+    t21.length === 0 && (await badge(page)) === 'AI 抽取',
+    'items=' + t21.length + ' badge=' + await badge(page));
+  check('T21 toast 说明已取消', /已取消/.test(await toastOf(page)), await toastOf(page));
+
+  /* T22：连接测试 —— 把「Key/模型/CORS 配错」和「抽取结果差」区分开 */
+  await ctl({ mode: 'ok' });
+  await openSettings(page);
+  await page.click('#llmTest');
+  await page.waitForTimeout(1500);
+  const testOk = (await page.locator('#llmTestResult').innerText()).trim();
+  check('T22 连接测试成功时给出耗时与返回片段', /连接成功/.test(testOk), testOk);
+  await ctl({ mode: 'http-500' });
+  await page.click('#llmTest');
+  await page.waitForTimeout(1800);
+  const testBad = (await page.locator('#llmTestResult').innerText()).trim();
+  check('T22 连接失败时给出具体状态码（HTTP 500）',
+    /连接失败/.test(testBad) && /HTTP 500/.test(testBad), testBad);
+  await ctl({ mode: 'ok' });
 
   /* ===== T4 · 无候选段落不发请求（验收措辞已于 spec 中修订为可证伪四条）===== */
   await ctl({ reset: true, mode: 'ok' });
@@ -314,11 +452,14 @@ async function walkConfirmExport(page, label) {
   await page.setInputFiles('#file', BIGFILE);
   await page.waitForTimeout(3000);
   const r1 = (await stubState()).requests;
-  const bigItems = await page.evaluate(() => state.items.length);
+  /* 2026-11-21：新增同文件去重后，stub 两批返回的是同一条内容（同 action/due/owner），
+     会被合并成 1 条且 mergedFrom=2。这仍然能证伪「截断成 1 批」：若只收到第二批，
+     mergedFrom 只会是 1。 */
+  const bigInfo = await page.evaluate(() => state.items.map((x) => ({ m: x.mergedFrom, i: x.sourceIndex })));
   check('S2.5 65 条候选分批顺序发送为 2 次请求（而非静默截断）',
     r1 - r0 === 2, 'requests delta=' + (r1 - r0));
-  check('S2.5 分批后条目未丢失（stub 每批 1 条 → 共 2 条）',
-    bigItems === 2, 'items=' + bigItems);
+  check('S2.5 两批结果都被接收（同一条目由 2 次返回合并，未丢批次）',
+    bigInfo.length === 1 && bigInfo[0].m === 2, JSON.stringify(bigInfo));
 
   /* ==================== S2.11 硬安全上限 ==================== */
   const counterEl = page.locator('#llmCounter');
@@ -522,7 +663,7 @@ async function walkConfirmExport(page, label) {
 
   await browser.close();
   fs.unlinkSync(NODATE);
-  for (const f of [BIGFILE, SINGLEFILE, LONGFILE, MANYFILE]) {
+  for (const f of [BIGFILE, SINGLEFILE, LONGFILE, MANYFILE, ONEFILE]) {
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
 

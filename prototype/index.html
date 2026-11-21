@@ -203,6 +203,30 @@
   .fbtn { padding: 5px 10px; font-size: 12.5px; border-radius: 7px; }
   .fbtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+  /* ===== 2026-11-21 · AI 抽取的进度 / 回退 / 结果摘要 =====
+     原来只有 toast：抽取几十秒无反馈、失败 4 秒后消失、成功什么也不说。
+     这条状态栏常驻在「待确认」顶部，三种状态（进行中 / 已回退 / 结果）二选一显示。 */
+  .ai-status {
+    display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap;
+    font-size: 12.5px; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px;
+    border: 1px solid #dbe6ff; background: var(--accent-soft); color: var(--ink);
+  }
+  .ai-status.bad { background: var(--warn-bg); border-color: #fcd34d; color: var(--warn-ink); }
+  .ai-status .grow { flex: 1; min-width: 0; }
+  .ai-status button { padding: 3px 10px; font-size: 12.5px; }
+  .spinner {
+    display: inline-block; flex: none; width: 11px; height: 11px; margin-right: 2px;
+    border: 2px solid #bfdbfe; border-top-color: var(--accent); border-radius: 50%;
+    animation: nhspin .8s linear infinite;
+  }
+  @keyframes nhspin { to { transform: rotate(360deg); } }
+  #llmDebug summary { font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+  #llmDebugBody {
+    margin: 6px 0 0; padding: 8px 10px; background: #f8fafc; border: 1px solid var(--line);
+    border-radius: 7px; font-size: 12px; line-height: 1.6; white-space: pre-wrap;
+    word-break: break-word; color: #374151; max-height: 220px; overflow: auto;
+  }
+
   /* ===== 2026-11-21 · 「2 原文」与「3 待确认」桌面端左右并排 =====
      左栏吸顶 + 独立滚动：右侧条目再多，原文与高亮也一直留在屏幕里；
      窄屏（<1080px）自动回到单列，左栏取消限高，由页面滚动。 */
@@ -293,10 +317,18 @@
         <button id="llmSave" class="primary">应用设置</button>
         <button id="llmClear" class="ghost">清除设置</button>
         <button id="llmRetry">重新尝试 AI 抽取</button>
+        <button id="llmTest">测试连接</button>
         <span id="llmHint" style="font-size:12.5px;color:#6b7280">尚未配置，当前使用规则式抽取</span>
         <span id="llmCounter" style="font-size:12.5px;color:#6b7280"></span>
       </div>
-      <p class="empty" style="margin:6px 0 0">三项齐备才算已配置。配置只存在本页内存中，刷新即清空，不写入浏览器存储、不出现在页面源码里。</p>
+      <div class="row" style="margin-top:4px">
+        <span id="llmTestResult" class="hint"></span>
+      </div>
+      <details id="llmDebug" style="margin-top:8px">
+        <summary>最近一次调用诊断（排查精度问题用，只存本页内存）</summary>
+        <pre id="llmDebugBody">还没有调用记录。</pre>
+      </details>
+      <p class="empty" style="margin:6px 0 0">三项齐备才算已配置。配置只存在本页内存中，刷新即清空，不写入浏览器存储、不出现在页面源码里。「测试连接」只发一次最小请求，同样计入会话预算。</p>
     </details>
   </section>
 
@@ -317,6 +349,7 @@
 
   <section class="review-col">
     <h2><span class="n">3</span>待确认</h2>
+    <div id="aiStatus" class="ai-status" hidden></div>
     <div class="review-bar">
       <span id="reviewCount" class="rcount">待确认 0 条 · 低置信度 0 条</span>
       <div class="row">
@@ -350,7 +383,7 @@
 
   <footer class="note">
     <strong>未配置 AI 时，本页面不发起任何网络请求，断网可用。</strong>
-    配置后，仅会把你通知里<strong>含截止时间的段落</strong>发送到你自己填写的接口，用于结构化抽取；
+    配置后，仅会把你通知里<strong>含截止时间的段落及其相邻上下文</strong>发送到你自己填写的接口，用于结构化抽取；
     密钥只存在于本页内存，刷新即清空，不写入浏览器存储。刷新后会话清空。演示样例均为模拟数据，不含真实个人信息。
   </footer>
 </div>
@@ -456,16 +489,28 @@ const state = {
   lastDiscard: null,     // 最近一次丢弃的条目 id，供「撤销上次丢弃」用 —— D-008
   rawExpanded: window.matchMedia('(min-width: 1080px)').matches, // 桌面默认展开；窄屏默认折叠，免得 42 段把「待确认」推到很远
   llmRequests: loadBudget(), // 会话累计已发出的请求数（含失败），S2.11 预算；刷新保留
-  llmLastRequestAt: 0    // 上一次请求发出时刻，S2.11 最小间隔
+  llmLastRequestAt: 0,   // 上一次请求发出时刻，S2.11 最小间隔
+  /* ===== 2026-11-21 · LLM 抽取体验 ===== */
+  progress: null,        // {name, batch, total}：AI 抽取进行中的分批进度
+  lastSummary: null,     // 最近一次抽取的一行结论（常驻在待确认区顶部）
+  llmAbort: null,        // 在途请求的 AbortController，供「取消」用
+  llmCancelled: false,   // 用户是否点了取消（用来把 AbortError 区分为取消而不是超时）
+  batchCancelled: false, // 取消整批（多文件载入 / 重试）时，后续文件不再开始
+  fallbackCount: 0,      // 本轮批次里有几个文件回退过规则式（状态栏用）
+  llmDebug: null         // 最近一次调用诊断（只存内存，不含密钥）
 };
 
 /* ===== LLM 配置（只存内存：不写 localStorage/sessionStorage、不进 URL、不进 DOM 属性）===== */
 const llm = { base: '', key: '', model: '' };
-const LLM_TIMEOUT_MS = 15000;   // spec S2.3
+/* 2026-11-21：15 秒对「60 段 + 结构化 JSON」的请求经常不够，一次超时就会把整个文件
+   换成规则式结果——用户看到的是「AI 明明配好了，出来的还是正则味」。放宽到 30 秒。 */
+const LLM_TIMEOUT_MS = 30000;   // spec S2.3（2026-11-21 修订：15s → 30s）
 const LLM_MAX_PARAS = 60;       // spec S2.5 单请求段落上限
 /* ===== spec S2.11 硬安全上限（防失控计费）===== */
 const LLM_MAX_TOKENS = 2048;         // 每次请求 max_tokens，封死输出膨胀
 const LLM_MAX_PARA_CHARS = 2000;     // 单段落送模型的字符上限
+const LLM_MAX_CHARS = 12000;         // 单请求正文总字符上限（与 LLM_MAX_PARAS 共同切批）
+const LLM_CONTEXT_RADIUS = 2;        // 候选段前后各带几段上下文（2026-11-21）
 const LLM_SESSION_REQUEST_CAP = 60;  // 会话累计请求上限（触顶即停用 AI）
 const LLM_MIN_INTERVAL_MS = 800;     // 两次 HTTP 请求最小间隔
 const LLM_CONFIRM_THRESHOLD = 200;   // 候选段落超过此值先弹确认
@@ -493,6 +538,9 @@ const elRawToggle = $('#rawToggle'), elRawToggleRow = $('#rawToggleRow'), elRawT
 const elModeBadge = $('#modeBadge'),
       elLlmBase = $('#llmBase'), elLlmKey = $('#llmKey'), elLlmModel = $('#llmModel'),
       elLlmHint = $('#llmHint'), elLlmRetry = $('#llmRetry'), elLlmCounter = $('#llmCounter');
+/* 2026-11-21 新增：进度/回退状态栏、连接测试、调用诊断 */
+const elAiStatus = $('#aiStatus'), elLlmTest = $('#llmTest'),
+      elLlmTestResult = $('#llmTestResult'), elLlmDebugBody = $('#llmDebugBody');
 
 let toastTimer = null;
 function toast(msg, ms) {
@@ -636,8 +684,11 @@ async function handleFiles(fileList) {
   if (!files.length) return;
   if (state.extracting || state.busy) { toast('抽取进行中，请稍候再载入'); return; }
   state.busy = true;
+  state.batchCancelled = false;
+  state.fallbackCount = 0;
   try {
     for (const f of files) {
+      if (state.batchCancelled) break;
       const lower = f.name.toLowerCase();
       if (!lower.endsWith('.docx') && !lower.endsWith('.txt')) {
         toast('暂不支持该格式：' + f.name + '（请上传 .txt 或 .docx）');
@@ -654,73 +705,238 @@ async function handleFiles(fileList) {
   }
 }
 
-/* ===== LLM 主抽取（spec noticehunter-llm S2.1 ~ S2.5）===== */
+/* ===== LLM 主抽取（spec noticehunter-llm S2.1 ~ S2.5；2026-11-21 精度与体验优化）===== */
 
-const LLM_SYSTEM_PROMPT = [
-  '你是校园通知结构化抽取器。输入是通知的段落列表，每行以「编号. 正文」给出。',
-  '请抽出其中可执行的待办事项，**只输出一个 JSON 数组，不要任何解释、不要 markdown 代码块**。',
-  '数组元素结构：',
-  '{"action":"交什么或做什么，不含时间与礼貌用语","owner":"动作的执行者，识别不到为 null",',
-  '"where":"交到或发送到的地点/渠道，识别不到为 null",',
-  '"dueRaw":"原文中的时间表述，原样保留","due":"归一化为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm，时间模糊则为 null",',
-  '"sourceIndex":段落编号（整数，必须来自输入，禁止编造）,',
-  '"confidence":"high 或 low","reasons":["低置信度原因，可为空数组"]}',
-  '规则：due 为具体日历日期时 confidence 才能是 high；出现「本周内」「下周三之前」「考试结束后一周内」等模糊表述时 due 必须为 null 且 confidence 为 low。',
-  '注意区分动作的执行者与签字人/审核人：owner 应是办事的人。'
-].join('\n');
-
-/* 模型常把 JSON 包在 ```json 围栏里，先剥掉再解析 */
-function stripFences(s) {
-  let t = String(s).trim();
-  const closed = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(t);
-  if (closed) return closed[1];
-  const open = /^```(?:json)?\s*/i.exec(t);
-  // 未闭合围栏：去掉开头标记并尝试去掉残余收尾，避免整段结果被丢弃
-  if (open) t = t.slice(open[0].length).replace(/\s*```\s*$/, '');
-  return t;
+/* 今天的日期与星期。模型必须知道「今天是几号」，否则会把通知里不带年份的
+   「11 月 5 日」按训练语料推成 2024/2025 年——卡片上就会显示「已逾期 300 天」。
+   每次请求现算，跨天不会用到过期值。 */
+function todayInfo(now) {
+  const d = now || new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return {
+    iso: d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()),
+    cn: d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日（周'
+        + '日一二三四五六'[d.getDay()] + '）',
+    year: d.getFullYear()
+  };
 }
 
-/* 候选段落前置筛选（spec S2.5）：只把含日期或模糊时间词的段落送给模型，
+/* 系统 Prompt（2026-11-21 重写）。
+   旧版 9 行，没有「今天几号」、没有示例、没有要求 dueRaw 逐字出现在 sourceIndex 指向的段落里。
+   实测因此出现四类精度问题：年份错、把截止时间那一行本身当成动作、
+   动作与截止分处两段时漏抽、出处段号乱填。新规则逐条对应这些失败模式。 */
+function llmSystemPrompt() {
+  const t = todayInfo();
+  return [
+    '你是校园通知的结构化抽取器，把一份通知转成可执行的待办清单。',
+    '今天是 ' + t.cn + '。文档里不带年份的日期一律按 ' + t.year + ' 年理解。',
+    '',
+    '用户会给出通知的段落，每行格式为「[段号] 正文」，段号从 1 开始，与原文件一致。',
+    '只输出一个 JSON 数组，不要解释、不要前言、不要 markdown 代码块。',
+    '没有可执行的待办时输出 []（这是合法答案，不要为了凑数而编造）。',
+    '',
+    '每个元素的结构：',
+    '{"action":"要交什么/做什么，动宾短语，不含时间与「请/于/各位」等词",',
+    '"owner":"办事的人或角色，不是签字人/审核人；识别不到为 null",',
+    '"where":"交到哪/发到哪（地点、邮箱、平台）；识别不到为 null",',
+    '"dueRaw":"原文里的时间表述，逐字照抄",',
+    '"due":"归一化为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm；模糊或无法确定则为 null",',
+    '"sourceIndex":截止时间所在段号（整数，必须来自输入的段号）,',
+    '"confidence":"high 或 low",',
+    '"reasons":["低置信度原因，简短；high 时给空数组"]}',
+    '',
+    '规则（逐条遵守）：',
+    '1. 一条待办只写一个动作。同一段里有两个不同动作就拆成两条，不要把两件事挤进一条。',
+    '2. dueRaw 必须逐字出现在 sourceIndex 指向的那一段里；不要改写、不要补全、不要跨段拼接。',
+    '3. 截止时间和动作分处不同段落时（例如上一行是「提交材料」，下一行是「截止时间：11 月 5 日」）：',
+    '   sourceIndex 填「截止时间所在的那一段」，action 从相邻段落取真正的动作；不要留空，也不要把截止时间本身当动作。',
+    '4. 只有时间、没有动作的段落不要单独输出待办；整篇找不到对应动作就跳过，不要臆造。',
+    '5. 相对时间（本周内、下周三前、考试结束后一周内、详见附件、以系统关闭时间为准）due 必须为 null，',
+    '   confidence 为 low，并在 reasons 里写原文表述。',
+    '6. 执行者判断：「各班学习委员」就填「各班学习委员」；「经任课教师签字后交至……」里的任课教师是签字人，',
+    '   不是办事人，办事人是学生/申请人。没有明确主语时看收件对象（如「各班级」「各位同学」）；仍判断不出来才填 null。',
+    '7. confidence 为 high 必须同时满足：截止时间是明确的日历日期、动作明确、依据能在原文找到。其余一律 low。',
+    '8. 宁可少抽，不可编造。不确定就输出 low 并把原因写进 reasons。',
+    '',
+    '示例（只示意格式）：',
+    '输入：',
+    '[1] 关于提交实习材料的通知',
+    '[2] 请各班学习委员于 2026 年 11 月 5 日 17:00 前，将《实习鉴定表》交至学院办公室。',
+    '输出：',
+    '[{"action":"提交《实习鉴定表》","owner":"各班学习委员","where":"学院办公室","dueRaw":"2026 年 11 月 5 日 17:00 前","due":"2026-11-05 17:00","sourceIndex":2,"confidence":"high","reasons":[]}]'
+  ].join('\n');
+}
+
+/* 模型经常不按「只输出 JSON」来：前面加一句「好的，以下是抽取结果：」、包一层 ```json 围栏、
+   输出被 max_tokens 截断、或者直接返回单个对象。旧版只处理「整段就是围栏」和「整段就是 JSON」，
+   其余一律整文件回退规则式——这是精度最差的一种失败。下面按「能救则救、救不了才回退」处理。 */
+
+/* 从文本里找出第一个括号开始、按括号配对（感知字符串与转义）截出完整 JSON */
+function scanBalancedJson(text) {
+  const start = text.search(/[\[{]/);
+  if (start < 0) return null;
+  const open = text[start];
+  const close = open === '[' ? ']' : '}';
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === open) depth++;
+    else if (ch === close) {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;   /* 没有闭合：多半是被截断了 */
+}
+
+/* 输出被截断时，把已经完整的顶层对象一条条抢救出来（比整文件回退规则式划算得多） */
+function salvageJsonObjects(text) {
+  const out = [];
+  let i = 0;
+  while (i < text.length) {
+    const s = text.indexOf('{', i);
+    if (s < 0) break;
+    const slice = scanBalancedJson(text.slice(s));
+    if (!slice) break;
+    try {
+      const o = JSON.parse(slice);
+      if (o && typeof o === 'object' && !Array.isArray(o) && typeof o.action === 'string') out.push(o);
+    } catch (e) { /* 这条不完整，继续找下一条 */ }
+    i = s + slice.length;
+  }
+  return out;
+}
+
+/* 数组 / {"items":[...]} / 单个对象 都归一成数组 */
+function normalizeParsed(v) {
+  if (Array.isArray(v)) return v;
+  if (v && typeof v === 'object') {
+    if (Array.isArray(v.items)) return v.items;
+    if (Array.isArray(v.todos)) return v.todos;
+    if (typeof v.action === 'string') return [v];
+  }
+  return null;
+}
+
+/* 返回 {arr, error, salvaged, note}；arr === null 表示确实救不回来 */
+function parseModelContent(content) {
+  const raw = String(content == null ? '' : content).trim();
+  if (!raw) return { arr: null, error: '模型返回了空内容' };
+  /* 去掉围栏标记本身（保留内部文本），再找第一个完整 JSON */
+  const stripped = raw.replace(/```(?:json)?/gi, '').trim();
+
+  const balanced = scanBalancedJson(stripped);
+  if (balanced) {
+    try {
+      const arr = normalizeParsed(JSON.parse(balanced));
+      if (arr) return { arr: arr };
+    } catch (e) { /* 落到下面的抢救分支 */ }
+  }
+
+  /* 被截断：先补一个闭合符，再退化为逐对象抢救 */
+  const start = stripped.search(/[\[{]/);
+  if (start >= 0) {
+    const tail = stripped.slice(start).trim();
+    try {
+      const arr = normalizeParsed(JSON.parse(tail + (tail[0] === '[' ? ']' : '}')));
+      if (arr) return { arr: arr, salvaged: true, note: '输出被截断，已补齐最后一个闭合符' };
+    } catch (e) { /* 继续 */ }
+  }
+  const objs = salvageJsonObjects(stripped);
+  if (objs.length) {
+    return { arr: objs, salvaged: true, note: '输出被截断，已抢救 ' + objs.length + ' 条完整条目' };
+  }
+  return { arr: null, error: '无法解析为 JSON' };
+}
+
+/* 候选段落筛选（spec S2.5）：只把含日期或模糊时间词的段落附近的窗口送模型，
    规则保证不漏召回，模型负责理解语义。无候选则不发请求。
+
+   2026-11-21 修订：候选段不再孤立送入。真实通知里「交什么」和「截止时间」
+   经常是上下两行（甚至上一段只写「提交时间：」），只送候选段会让模型拿不到动作，
+   只能把截止时间那一行本身当成动作——这是精度最大的单一来源。
+   现在把每段候选前后各 LLM_CONTEXT_RADIUS 段一起带上，并固定带上首段（标题）
+   作为收件对象/主题的线索。
+
    超过单次上限的部分由 extractSource 分批顺序发送，此处不做截断。
    spec S2.11.2-2：单段落超过 LLM_MAX_PARA_CHARS 时只截断「送模型的副本」，
    sourceText 与原文区仍保留完整原文，并记录原文长度供卡片标注原因。 */
 function selectCandidateParagraphs(paragraphs) {
-  const out = [];
   const truncated = {};
+  const hits = [];
   paragraphs.forEach((text, i) => {
-    if (!detectDue(text)) return;
-    let t = text;
+    if (detectDue(text)) hits.push(i + 1);
+  });
+  if (!hits.length) return { list: [], truncated: truncated, count: 0 };
+
+  const keep = new Set();
+  const add = (n) => { if (n >= 1 && n <= paragraphs.length) keep.add(n); };
+  add(1);
+  for (const n of hits) {
+    for (let k = n - LLM_CONTEXT_RADIUS; k <= n + LLM_CONTEXT_RADIUS; k++) add(k);
+  }
+
+  const list = [];
+  for (const n of [...keep].sort((a, b) => a - b)) {
+    let t = paragraphs[n - 1];
     if (t.length > LLM_MAX_PARA_CHARS) {
-      truncated[i + 1] = t.length;
+      truncated[n] = t.length;
       t = t.slice(0, LLM_MAX_PARA_CHARS);
     }
-    out.push({ index: i + 1, text: t });
-  });
-  return { list: out, truncated: truncated };
+    list.push({ index: n, text: t });
+  }
+  return { list: list, truncated: truncated, count: hits.length };
 }
 
-/* spec S2.3 调用契约：失败一律抛出带具体原因的中文 Error，由调用方回退 */
-async function callLLM(candidates, fileName) {
+/* 按「段数 + 总字符」双重上限切批：段数上限保证 T11 的 65 段 → 2 次请求不被破坏，
+   字符上限防止 60 段超长段落把上下文撑爆（旧版只有段数上限，长文档会超窗）。 */
+function chunkParagraphs(list) {
+  const chunks = [];
+  let cur = [], chars = 0;
+  for (const p of list) {
+    const cost = p.text.length + String(p.index).length + 4;
+    if (cur.length && (cur.length >= LLM_MAX_PARAS || chars + cost > LLM_MAX_CHARS)) {
+      chunks.push(cur);
+      cur = [];
+      chars = 0;
+    }
+    cur.push(p);
+    chars += cost;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
+
+/* ===== 调用层（spec S2.3；2026-11-21 重写）=====
+   旧版把「节流 / 计数 / 超时 / fetch / 读 JSON」和「拼请求体」混在一个函数里，
+   于是连接测试、取消、诊断都插不进去；HTTP 错误也只报状态码、不报服务端的错误说明，
+   用户看到「HTTP 400」根本不知道是模型名写错还是 Key 没权限。
+   现在拆成 llmRequest（只管发一次请求）与 callLLM（只管拼抽取请求并解析）。 */
+
+function llmCancelError() {
+  const e = new Error('已取消 AI 抽取');
+  e.name = 'LlmCancel';
+  return e;
+}
+
+function llmHost() {
+  try { return new URL(llm.base).host; } catch (e) { return String(llm.base || '未配置'); }
+}
+
+/* 发一次 OpenAI 兼容请求。返回 {content, dbg}；任何失败都抛中文 Error。 */
+async function llmRequest(body, meta) {
   const sid = state.sessionId;
   /* S2.11.2-3：会话预算触顶即拒绝发出新请求（失败的请求同样消耗预算） */
   if (!llmBudgetLeft()) {
     throw new Error('本会话 AI 请求已达上限 ' + LLM_SESSION_REQUEST_CAP + ' 次，已改用规则式抽取');
   }
-
-  const body = {
-    model: llm.model,
-    temperature: 0,
-    max_tokens: LLM_MAX_TOKENS,          /* S2.11.2-1 */
-    messages: [
-      { role: 'system', content: LLM_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: '文件：' + fileName + '\n\n' +
-          candidates.map((c) => c.index + '. ' + c.text).join('\n')
-      }
-    ]
-  };
 
   /* S2.11.2-4：保证两次请求之间至少间隔 LLM_MIN_INTERVAL_MS（首个请求不延迟） */
   const gap = state.llmLastRequestAt
@@ -728,15 +944,29 @@ async function callLLM(candidates, fileName) {
   if (gap > 0) await sleep(gap);
   /* 节流等待期间会话可能被清空：此时不得把计数写进新会话，也不得发出幽灵请求 */
   if (state.sessionId !== sid) throw new Error('会话已清空，本次 AI 调用已取消');
+  if (state.llmCancelled) throw llmCancelError();
+
   state.llmLastRequestAt = Date.now();
   state.llmRequests += 1;   // 含失败请求：它们已经产生了计费风险
   saveBudget(state.llmRequests);   // 同步落盘，否则刷新即绕过封顶（R-17）
-  renderAll();              // 刷新设置面板里的计数显示
+  renderAll();              // 刷新计数与进度
 
-  /* 超时计时器覆盖到「读完响应体」为止——否则已返回头但正文挂起时会永远卡住 */
-  const timeoutMsg = 'AI 请求超时（' + (LLM_TIMEOUT_MS / 1000) + ' 秒），已回退规则式抽取';
+  const dbg = {
+    at: nowStamp(), host: llmHost(), model: llm.model, tag: meta || '',
+    status: 0, ms: 0, chars: 0, finish: '', error: '', excerpt: ''
+  };
   const ctl = new AbortController();
+  state.llmAbort = ctl;
   const timer = setTimeout(() => ctl.abort(), LLM_TIMEOUT_MS);
+  const started = Date.now();
+  const finishDbg = (extra) => {
+    clearTimeout(timer);
+    state.llmAbort = null;
+    dbg.ms = Date.now() - started;
+    Object.assign(dbg, extra || {});
+    state.llmDebug = dbg;
+    renderLlmDebug();
+  };
 
   let res;
   try {
@@ -747,97 +977,277 @@ async function callLLM(candidates, fileName) {
       signal: ctl.signal
     });
   } catch (e) {
-    clearTimeout(timer);
-    if (e && e.name === 'AbortError') throw new Error(timeoutMsg);
-    throw new Error('AI 请求未发出（网络错误），已回退规则式抽取');
+    const cancelled = state.llmCancelled;
+    finishDbg({
+      error: cancelled ? '用户取消'
+        : (e && e.name === 'AbortError') ? ('超时 ' + (LLM_TIMEOUT_MS / 1000) + ' 秒')
+        : ('网络错误：' + ((e && e.message) || 'unknown'))
+    });
+    if (cancelled) throw llmCancelError();
+    if (e && e.name === 'AbortError') {
+      throw new Error('AI 请求超时（' + (LLM_TIMEOUT_MS / 1000) + ' 秒），已回退规则式抽取');
+    }
+    throw new Error('AI 请求未发出（网络错误或接口未允许跨域 CORS），已回退规则式抽取');
   }
+
+  dbg.status = res.status;
   if (!res.ok) {
-    clearTimeout(timer);
-    throw new Error('AI 接口返回 HTTP ' + res.status + '，已回退规则式抽取');
+    /* 把服务端给的错误说明一并带出来：「HTTP 401」与「HTTP 401（Invalid API key）」
+       对用户来说是两种完全不同的处置。 */
+    let detail = '';
+    try {
+      const j = await res.json();
+      const m = j && j.error && (j.error.message || j.error);
+      if (m) detail = String(m);
+    } catch (e) { /* 错误响应不是 JSON，忽略 */ }
+    finishDbg({ error: 'HTTP ' + res.status + (detail ? ' · ' + clipText(detail, 120) : '') });
+    throw new Error('AI 接口返回 HTTP ' + res.status
+      + (detail ? '（' + clipText(detail, 90) + '）' : '') + '，已回退规则式抽取');
   }
 
   let data;
   try { data = await res.json(); }
   catch (e) {
-    clearTimeout(timer);
-    if (e && e.name === 'AbortError') throw new Error(timeoutMsg);
+    const cancelled = state.llmCancelled;
+    finishDbg({
+      error: cancelled ? '用户取消'
+        : (e && e.name === 'AbortError') ? ('读取响应超时 ' + (LLM_TIMEOUT_MS / 1000) + ' 秒')
+        : '响应不是合法 JSON'
+    });
+    if (cancelled) throw llmCancelError();
+    if (e && e.name === 'AbortError') {
+      throw new Error('AI 请求超时（' + (LLM_TIMEOUT_MS / 1000) + ' 秒），已回退规则式抽取');
+    }
     throw new Error('AI 接口响应不是合法 JSON，已回退规则式抽取');
   }
-  clearTimeout(timer);
 
-  const content = data && data.choices && data.choices[0] &&
-    data.choices[0].message && data.choices[0].message.content;
+  const choice = data && data.choices && data.choices[0];
+  const content = choice && choice.message && choice.message.content;
   if (typeof content !== 'string') {
+    finishDbg({ error: '缺少 choices[0].message.content' });
     throw new Error('AI 响应缺少 choices[0].message.content，已回退规则式抽取');
   }
-
-  let arr;
-  try { arr = JSON.parse(stripFences(content)); }
-  catch (e) { throw new Error('AI 返回的内容无法解析为 JSON，已回退规则式抽取'); }
-
-  if (!Array.isArray(arr)) throw new Error('AI 返回的不是数组，已回退规则式抽取');
-  if (!arr.length) throw new Error('AI 返回了空数组，已回退规则式抽取');   // spec S2.3
-  return arr;
+  finishDbg({
+    finish: (choice && choice.finish_reason) || '',
+    chars: content.length,
+    excerpt: clipText(content, 300)
+  });
+  return { content: content, dbg: dbg, choice: choice };
 }
 
-/* spec S2.4：不信任模型返回，逐字段校验；不合格的丢弃或由规则层修正 */
+/* 一次抽取请求：拼 prompt、发请求、把内容解析成数组。
+   spec S2.3 的「空数组视为失败」已被 2026-11-21 修订推翻：
+   「这篇通知没有可执行事项」是有效结果，退回规则式反而会凭空造出条目。 */
+async function callLLM(candidates, fileName) {
+  const body = {
+    model: llm.model,
+    temperature: 0,
+    max_tokens: LLM_MAX_TOKENS,          /* S2.11.2-1 */
+    messages: [
+      { role: 'system', content: llmSystemPrompt() },
+      {
+        role: 'user',
+        content: '文件：' + fileName + '\n\n' +
+          candidates.map((c) => '[' + c.index + '] ' + c.text).join('\n')
+      }
+    ]
+  };
+  const meta = fileName + ' · ' + candidates.length + ' 段（'
+    + candidates[0].index + '–' + candidates[candidates.length - 1].index + '）';
+  const r = await llmRequest(body, meta);
+  const parsed = parseModelContent(r.content);
+  if (parsed.arr === null) {
+    const cut = r.dbg.finish === 'length' ? '（输出被 max_tokens 截断）' : '';
+    throw new Error('AI 返回的内容' + parsed.error + cut + '，已回退规则式抽取');
+  }
+  const notes = [];
+  if (parsed.salvaged && parsed.note) notes.push(parsed.note);
+  if (r.dbg.finish === 'length') notes.push('模型输出触到 max_tokens 上限，可能有条目被截断');
+  return { entries: parsed.arr, notes: notes };
+}
+
+/* ===== 输出校验与补正（spec S2.4；2026-11-21 重写）=====
+   原则：不信任模型返回，但也不「一有瑕疵就整条丢弃」。
+   校验的目标是让「出处可点回原文」这条差异化设计站得住，并把不确定的地方
+   显式标成低置信度 + 原因，而不是悄悄给出一个看起来很像正确的错误字段。 */
+
+function clipText(s, n) {
+  const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  return t.length > n ? t.slice(0, n) + '…' : t;
+}
+
+/* 去重用的归一化：空白与标点都不参与比较 */
+function normForDedup(s) {
+  return String(s || '').replace(/[\s，,。.、；;：:！!？?（）()【】\[\]「」“”"']/g, '').toLowerCase();
+}
+
+/* 文本里是否含 needle：先精确匹配，再退回「去空白/标点」的宽松匹配。
+   模型抄原文时常把全角标点、空格改掉（「2026 年 11 月 5 日」→「2026年11月5日」），
+   只做精确匹配会把正确结果误判成「原文找不到依据」。 */
+function containsLoose(text, needle) {
+  if (!needle) return false;
+  if (String(text).indexOf(needle) >= 0) return true;
+  const n = normForDedup(needle);
+  return n.length >= 4 && normForDedup(text).indexOf(n) >= 0;
+}
+
+/* 在整篇原文里找 needle 落在第几段（1 起）。
+   命中多段时优先返回模型声明的那一段，否则返回第一处。
+   返回 -1 表示原文里根本没有这段文字——即模型可能编造了时间。 */
+function locateParagraph(paragraphs, needle, prefer) {
+  const n = String(needle || '').trim();
+  if (!n) return -1;
+  let hits = [];
+  for (let i = 0; i < paragraphs.length; i++) {
+    if (paragraphs[i].indexOf(n) >= 0) hits.push(i + 1);
+  }
+  if (!hits.length) {
+    const nn = normForDedup(n);
+    if (nn.length >= 4) {
+      for (let i = 0; i < paragraphs.length; i++) {
+        if (normForDedup(paragraphs[i]).indexOf(nn) >= 0) hits.push(i + 1);
+      }
+    }
+  }
+  if (!hits.length) return -1;
+  if (prefer && hits.indexOf(prefer) >= 0) return prefer;
+  return hits[0];
+}
+
 function mapLLMEntries(raw, paragraphs, name, srcIdx) {
   const items = [];
-  let dropped = 0;
+  const stats = { dropped: 0, relocated: 0, unverified: 0, fixedDue: 0, merged: 0 };
   const maxIdx = paragraphs.length;
+  const seen = new Map();
 
   for (const r of raw) {
-    if (!r || typeof r !== 'object') { dropped++; continue; }
+    if (!r || typeof r !== 'object' || Array.isArray(r)) { stats.dropped++; continue; }
 
-    const action = typeof r.action === 'string' ? r.action.trim() : '';
-    if (!action) { dropped++; continue; }
+    /* 常见字段别名：不同模型偶尔给 task / source_index / due_raw */
+    const pick = (a, b) => (r[a] !== undefined && r[a] !== null ? r[a] : r[b]);
+    const actionRaw = pick('action', 'task');
+    const action = typeof actionRaw === 'string' ? clipText(actionRaw, 160) : '';
+    if (!action) { stats.dropped++; continue; }
 
-    const idx = Number(r.sourceIndex);
-    if (!Number.isInteger(idx) || idx < 1 || idx > maxIdx) { dropped++; continue; }  // 防幻觉定位
-
-    const reasons = Array.isArray(r.reasons)
-      ? r.reasons.filter((x) => typeof x === 'string' && x.trim())
+    /* 本地校验产生的原因优先保留；模型自己写的 reasons 只作补充 */
+    const localReasons = [];
+    let localWarn = false;
+    const pushReason = (s) => {
+      if (!s || localReasons.length >= 4) return;
+      const t = clipText(s, 56);
+      if (localReasons.indexOf(t) < 0) localReasons.push(t);
+    };
+    const warn = (s) => { localWarn = true; pushReason(s); };
+    const modelReasons = Array.isArray(r.reasons)
+      ? r.reasons.filter((x) => typeof x === 'string' && x.trim()).map((x) => clipText(x, 56))
       : [];
 
-    const dueRaw = typeof r.dueRaw === 'string' && r.dueRaw.trim() ? r.dueRaw.trim() : null;
-    const dueOk = typeof r.due === 'string' && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(r.due);
-    let due = dueOk ? r.due : null;
+    const dueRawRaw = pick('dueRaw', 'due_raw');
+    const dueRaw = typeof dueRawRaw === 'string' && dueRawRaw.trim() ? dueRawRaw.trim() : null;
 
-    if (r.due && !dueOk) {
-      // 规则层修正：从 dueRaw 重算，失败则置空
+    /* ---- 出处：优先按 dueRaw 在原文里的实际位置校正段号 ----
+       模型常见的两种错位：把「动作段」当出处（截止在下一段）；
+       分批请求时按批内序号重新编号。两种都能靠「原文里这段文字到底在第几段」纠正。 */
+    const claimed = Number(pick('sourceIndex', 'source_index'));
+    const claimedOk = Number.isInteger(claimed) && claimed >= 1 && claimed <= maxIdx;
+    const located = locateParagraph(paragraphs, dueRaw, claimedOk ? claimed : null);
+    if (!claimedOk && located <= 0) { stats.dropped++; continue; }   // 越界且原文无据：防幻觉定位
+    let idx;
+    if (located > 0) {
+      idx = located;
+      if (located !== claimed) {
+        stats.relocated++;
+        warn('出处段号已按原文校正为第 ' + located + ' 段');
+      }
+    } else {
+      idx = claimed;
+    }
+    const srcText = paragraphs[idx - 1] || '';
+    const evidenceOk = !!dueRaw && containsLoose(srcText, dueRaw);
+    if (dueRaw && !evidenceOk) {
+      stats.unverified++;
+      warn('截止时间在原文里找不到依据，可能是模型推测');
+    }
+
+    /* ---- 截止时间：格式、年份、与原文的一致性 ----
+       年份是实测最伤精度的一项：模型看不到「今天」，会把「11 月 5 日」推成 2024/2025 年，
+       规则层又只管格式、不管年份，于是卡片上显示「已逾期 300 天」。 */
+    const duePattern = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/;
+    let due = (typeof r.due === 'string' && duePattern.test(r.due)) ? r.due : null;
+    if (r.due && !due) {
       const rec = dueRaw ? detectDue(dueRaw) : null;
       if (rec && !rec.vague) due = rec.due;
-      reasons.push('AI 返回的截止时间格式非法，已由规则修正或置空');
+      warn('AI 返回的截止时间格式非法，已由规则修正或置空');
+    }
+    if (dueRaw) {
+      const rec = detectDue(dueRaw);
+      if (rec && rec.vague) {
+        if (due) { due = null; stats.fixedDue++; }
+        warn('原文截止时间是相对表述「' + clipText(dueRaw, 20) + '」，需人工确认具体日期');
+      } else if (rec && !rec.vague) {
+        if (!due) {
+          due = rec.due;
+          stats.fixedDue++;
+          warn('AI 未给出截止日期，已按原文补全为 ' + rec.due);
+        } else if (due.slice(0, 10) !== rec.due.slice(0, 10)) {
+          const before = due.slice(0, 10);
+          due = rec.due;
+          stats.fixedDue++;
+          warn('AI 给出的日期与原文不一致（' + before + ' → ' + rec.due.slice(0, 10) + '），已按原文校正');
+        }
+      } else if (due) {
+        /* 原文是「以系统关闭时间为准」这类无法归一化的表述：采用 AI 的解析但必须人工核对 */
+        warn('原文时间表述无法可靠归一，已采用 AI 结果，请核对');
+      }
     }
 
-    let confidence;
-    if (r.confidence === 'high' || r.confidence === 'low') {
-      confidence = r.confidence;
-    } else {
-      confidence = 'low';
-      reasons.push('AI 返回的置信度非法，已回落为低置信度');   // spec S2.4
-    }
+    /* ---- 置信度：模型自报只是参考，本地证据才是判据 ---- */
+    let confidence = (r.confidence === 'high' || r.confidence === 'low') ? r.confidence : null;
+    if (!confidence) warn('AI 返回的置信度非法，已回落为低置信度');
     if (!due) confidence = 'low';
+    if (localWarn) confidence = 'low';
 
-    items.push({
+    const owner = pick('owner', 'assignee');
+    const where = pick('where', 'location');
+
+    /* 本地原因已经引用过原文片段（「本周内」）时，模型再说一遍同样的意思就不必重复展示 */
+    const quoted = [];
+    for (const lr of localReasons) {
+      const m = lr.match(/「([^」]{2,20})」/);
+      if (m) quoted.push(m[1]);
+    }
+    const extraReasons = modelReasons.filter((x) => !quoted.some((q) => x.indexOf(q) >= 0));
+
+    const item = {
       id: 'it-' + (++state.seq),
       sourceName: name,
       sourceIndex: idx,
       sourceText: paragraphs[idx - 1],
       srcIdx: srcIdx,
       action: action,
-      owner: (typeof r.owner === 'string' && r.owner.trim()) ? r.owner.trim() : null,
-      where: (typeof r.where === 'string' && r.where.trim()) ? r.where.trim() : null,
+      owner: (typeof owner === 'string' && owner.trim()) ? clipText(owner, 40) : null,
+      where: (typeof where === 'string' && where.trim()) ? clipText(where, 60) : null,
       due: due,
       dueRaw: dueRaw,
       confidence: confidence,
-      reasons: reasons,
+      reasons: localReasons.concat(extraReasons).slice(0, 4),
       status: 'pending',
       mergedFrom: 1,
       extractor: 'ai'
-    });
+    };
+
+    /* 同文件内去重：模型常把同一件事输出两三条（措辞略有差异）。
+       不去重的话，待确认区会出现一堆看起来都对、实际重复的卡片。 */
+    const key = normForDedup(item.action) + '|' + (item.due || '') + '|' + normForDedup(item.owner);
+    if (seen.has(key)) {
+      seen.get(key).mergedFrom += 1;
+      stats.merged++;
+      continue;
+    }
+    seen.set(key, item);
+    items.push(item);
   }
-  return { items: items, dropped: dropped };
+  return { items: items, stats: stats };
 }
 
 /* 规则式抽取的批量入口（兜底路径） */
@@ -1040,7 +1450,9 @@ function addSource(name, paragraphs) {
   return srcIdx;
 }
 
-/* 统一抽取入口：已配置 → 先走 AI；任何失败或未配置 → 回退规则式，主流程永不中断 */
+/* 统一抽取入口：已配置 → 先走 AI；任何失败或未配置 → 回退规则式，主流程永不中断。
+   2026-11-21：新增分批进度、可取消、结果摘要；取消时保留已完成批次的结果，
+   不再把已经付费的 AI 结果换成规则式（旧版只有 toast，几十秒里用户看不到任何反馈）。 */
 async function extractSource(srcIdx, opts) {
   const src = state.sources[srcIdx];
   if (!src) return;
@@ -1052,10 +1464,14 @@ async function extractSource(srcIdx, opts) {
 
   state.extracting = true;
   state.lastFallback = null;
+  state.lastSummary = null;
+  state.llmCancelled = false;
   renderAll();
   if (!quiet) toast('已载入 ' + src.name + '（' + src.paragraphs.length + ' 段）');
 
   const alive = () => state.sessionId === sid;
+  const setSummary = (text) => { if (alive()) state.lastSummary = text; };
+  let raw = [], notes = [], cand = null, batchDone = 0, batchTotal = 0;
   try {
     if (!llmConfigured()) {
       if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
@@ -1068,17 +1484,17 @@ async function extractSource(srcIdx, opts) {
       toast(state.lastFallback, 6500);
       return;
     }
-    const cand = selectCandidateParagraphs(src.paragraphs);
-    const candidates = cand.list;
-    if (!candidates.length) {
+    cand = selectCandidateParagraphs(src.paragraphs);
+    if (!cand.count) {
       // 无截止时间相关段落 → 不发任何请求（spec S2.5），直接规则式
       if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
+      setSummary('《' + src.name + '》没有含时间信息的段落，未调用 AI（规则式同样不产出待办）');
       return;
     }
     /* S2.11.2-5：候选过多时先确认，避免用户在不知情下打出大量请求 */
-    if (candidates.length > LLM_CONFIRM_THRESHOLD) {
-      const go = window.confirm('该文件有 ' + candidates.length + ' 段候选，将分约 '
-        + Math.ceil(candidates.length / LLM_MAX_PARAS) + ' 次请求调用模型，是否继续？');
+    if (cand.count > LLM_CONFIRM_THRESHOLD) {
+      const go = window.confirm('该文件有 ' + cand.count + ' 段候选，将分约 '
+        + Math.ceil(cand.list.length / LLM_MAX_PARAS) + ' 次请求调用模型，是否继续？');
       if (!go) {
         state.lastFallback = '候选段落较多，已按你的选择改用规则式抽取';
         if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
@@ -1087,14 +1503,17 @@ async function extractSource(srcIdx, opts) {
       }
     }
     /* spec S2.5：单次请求不超过 LLM_MAX_PARAS，超出分批顺序发送，不截断 */
-    const chunks = [];
-    for (let i = 0; i < candidates.length; i += LLM_MAX_PARAS) {
-      chunks.push(candidates.slice(i, i + LLM_MAX_PARAS));
-    }
-    let raw = [];
-    for (const c of chunks) {
+    const chunks = chunkParagraphs(cand.list);
+    batchTotal = chunks.length;
+    for (let i = 0; i < chunks.length; i++) {
       if (!alive()) return;      // 会话被清空则立即停止，不再发后续分批
-      raw = raw.concat(await callLLM(c, src.name));
+      if (state.llmCancelled) throw llmCancelError();
+      state.progress = { name: src.name, batch: i + 1, total: chunks.length };
+      renderAll();
+      const res = await callLLM(chunks[i], src.name);
+      raw = raw.concat(res.entries);
+      notes = notes.concat(res.notes || []);
+      batchDone = i + 1;
     }
     if (!alive()) return;
 
@@ -1104,18 +1523,67 @@ async function extractSource(srcIdx, opts) {
       const origLen = cand.truncated[it.sourceIndex];
       if (origLen) it.reasons.push('原文段落超长（' + origLen + ' 字），已截断送模型');
     }
+    /* 「AI 说没有待办」是有效结果（2026-11-21 修订）：不要退回规则式凭空造条目 */
+    if (!mapped.items.length && !raw.length) {
+      const note = notes.length ? '（' + notes[0] + '）' : '';
+      setSummary('《' + src.name + '》AI 阅读了 ' + cand.count + ' 段候选，没有发现可执行事项' + note);
+      toast('AI 判断这份通知没有可执行事项' + note);
+      return;
+    }
     if (!mapped.items.length) throw new Error('AI 返回的条目经校验后全部被剔除，已回退规则式抽取');
     state.items.push(...mapped.items);
-    if (mapped.dropped > 0) {
-      toast('AI 返回的 ' + mapped.dropped + ' 条已剔除（来源编号非法或字段缺失）');
+
+    const high = mapped.items.filter((x) => x.confidence !== 'low').length;
+    const low = mapped.items.length - high;
+    const bits = [];
+    if (mapped.stats.merged) bits.push('合并重复 ' + mapped.stats.merged + ' 条');
+    if (mapped.stats.fixedDue) bits.push('校正截止时间 ' + mapped.stats.fixedDue + ' 条');
+    if (mapped.stats.relocated) bits.push('校正出处 ' + mapped.stats.relocated + ' 条');
+    if (mapped.stats.unverified) bits.push('出处待核 ' + mapped.stats.unverified + ' 条');
+    if (notes.length) bits.push(notes[0]);
+    setSummary('《' + src.name + '》AI 抽取完成：' + mapped.items.length + ' 条（高 ' + high
+      + ' / 低 ' + low + '）' + (bits.length ? '；' + bits.join('；') : ''));
+
+    /* 失败/降级提示优先占 toast；成功摘要常驻状态栏，不跟它抢 */
+    if (mapped.stats.dropped > 0) {
+      toast('AI 返回的 ' + mapped.stats.dropped + ' 条已剔除（来源编号非法或字段缺失）');
+    } else if (notes.length) {
+      toast(notes[0]);
+    } else {
+      toast('AI 抽取完成：' + mapped.items.length + ' 条待确认（高 ' + high + ' / 低 ' + low + '）');
     }
   } catch (e) {
     if (!alive()) return;
+    if (e && e.name === 'LlmCancel') {
+      /* 用户主动取消：不回退规则式（那会把已付费的结果换成更差的），
+         已完成的批次照常入库，并如实说明只完成了几批。 */
+      state.lastFallback = null;
+      let kept = 0;
+      if (raw.length) {
+        const mapped = mapLLMEntries(raw, src.paragraphs, src.name, srcIdx);
+        if (cand) {
+          for (const it of mapped.items) {
+            const origLen = cand.truncated[it.sourceIndex];
+            if (origLen) it.reasons.push('原文段落超长（' + origLen + ' 字），已截断送模型');
+          }
+        }
+        state.items.push(...mapped.items);
+        kept = mapped.items.length;
+      }
+      setSummary('《' + src.name + '》AI 抽取已取消：完成 ' + batchDone + ' / ' + batchTotal
+        + ' 批，保留 ' + kept + ' 条；点「重新尝试 AI 抽取」可补全');
+      toast(kept ? ('已取消，保留已取得的 ' + kept + ' 条') : '已取消 AI 抽取，本轮未产生条目');
+      return;
+    }
     state.lastFallback = e.message;
+    state.fallbackCount += 1;
     state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
     toast(e.message, 6500);
+    setSummary('《' + src.name + '》已回退规则式抽取');
   } finally {
+    state.progress = null;
     state.extracting = false;
+    state.llmAbort = null;
     renderAll();
   }
 }
@@ -1319,7 +1787,7 @@ function renderReview() {
       + '<div class="fields">'
       + '<label>交什么 / 做什么<input data-id="' + it.id + '" data-field="action" value="' + esc(it.action) + '"></label>'
       + '<label>谁<input data-id="' + it.id + '" data-field="owner" value="' + esc(it.owner || '') + '" placeholder="待分配"></label>'
-      + '<label>截止时间<input data-id="' + it.id + '" data-field="due" value="' + esc(it.due || '') + '" placeholder="YYYY-MM-DD 或 YYYY-MM-DD HH:mm"></label>'
+      + '<label>截止时间<input data-id="' + it.id + '" data-field="due" value="' + esc(it.due || '') + '" placeholder="YYYY-MM-DD HH:mm" title="格式：YYYY-MM-DD 或 YYYY-MM-DD HH:mm；留空表示时间模糊"></label>'
       + '<label>交到哪<input data-id="' + it.id + '" data-field="where" value="' + esc(it.where || '') + '" placeholder="未识别"></label>'
       + '</div>'
       + '<div class="card-actions">'
@@ -1484,6 +1952,7 @@ function renderModeBadge() {
     if (!conf) txt = '规则式抽取（兜底）';
     else if (outOfBudget) txt = 'AI 抽取 · 预算已用尽';        /* S2.11.2-3 */
     else if (state.lastFallback) txt = 'AI 抽取 · 已回退';
+    else if (state.progress) txt = 'AI 抽取中…';
     else txt = 'AI 抽取';
     elModeBadge.textContent = txt;
     elModeBadge.className = 'badge' + (conf ? '' : ' mute');
@@ -1503,6 +1972,59 @@ function renderModeBadge() {
     elLlmRetry.textContent = busy ? 'AI 抽取中…'
       : (outOfBudget ? '预算已用尽' : '重新尝试 AI 抽取');
   }
+  if (elLlmTest) {
+    /* 测试连接会额外花一次预算；抽取/整批操作/正在测试时都不允许夹进来（单飞） */
+    elLlmTest.disabled = !conf || !llmBudgetLeft() || state.extracting || state.busy
+      || !!state.progress || llmTesting;
+  }
+}
+
+/* 「待确认」顶部的常驻状态栏：进行中（可取消）/ 已回退（可重试）/ 上次结果摘要。
+   旧版这三种情况只有一个几秒后消失的 toast，用户既不知道要等多久，也不知道为什么回退了。 */
+function renderAiStatus() {
+  if (!elAiStatus) return;
+  let html = '', bad = false;
+  if (state.progress) {
+    const pr = state.progress;
+    html = '<span class="spinner" aria-hidden="true"></span>'
+      + '<span class="grow">AI 正在抽取《' + esc(pr.name) + '》'
+      + (pr.total > 1 ? '第 ' + pr.batch + ' / ' + pr.total + ' 批' : '')
+      + '（本会话已发 ' + state.llmRequests + ' 次请求）</span>'
+      + '<button class="ghost" data-act="cancelAi">取消</button>';
+  } else if (state.lastFallback) {
+    bad = true;
+    const reason = String(state.lastFallback).replace(/[，,]\s*已回退规则式抽取$/, '');
+    html = '<span class="grow"><strong>已回退规则式抽取：</strong>' + esc(reason)
+      + (state.fallbackCount > 1 ? '（本轮共 ' + state.fallbackCount + ' 个文件回退）' : '')
+      + '</span><button data-act="retryAi">重试 AI</button>';
+  } else if (state.lastSummary) {
+    html = '<span class="grow">' + esc(state.lastSummary) + '</span>';
+  } else {
+    elAiStatus.hidden = true;
+    elAiStatus.innerHTML = '';
+    elAiStatus.className = 'ai-status';
+    return;
+  }
+  elAiStatus.className = 'ai-status' + (bad ? ' bad' : '');
+  elAiStatus.innerHTML = html;
+  elAiStatus.hidden = false;
+}
+
+/* 最近一次调用的诊断信息：端点主机、模型、批次、HTTP 状态、耗时、finish_reason、原始返回片段。
+   不含密钥，也不落盘 —— 精度问题（年份错、字段空、被截断）只看界面是查不出来的。 */
+function renderLlmDebug() {
+  if (!elLlmDebugBody) return;
+  const d = state.llmDebug;
+  if (!d) { elLlmDebugBody.textContent = '还没有调用记录。'; return; }
+  elLlmDebugBody.textContent = [
+    '时间：' + d.at,
+    '端点：' + d.host + '  ·  模型：' + d.model,
+    '批次：' + (d.tag || '—'),
+    'HTTP：' + (d.status || '—') + '  ·  耗时：' + d.ms + ' ms',
+    'finish_reason：' + (d.finish || '—') + '  ·  返回字符数：' + d.chars,
+    d.error ? ('错误：' + d.error) : '结果：成功',
+    d.excerpt ? ('\n原始返回（前 300 字）：\n' + d.excerpt) : ''
+  ].join('\n');
 }
 
 function renderAll() {
@@ -1512,6 +2034,8 @@ function renderAll() {
   renderReview();
   renderList();
   renderDeadline();
+  renderAiStatus();
+  renderLlmDebug();
 }
 
 /* ===== 人工确认与状态流转 ===== */
@@ -1650,9 +2174,12 @@ document.addEventListener('drop', (e) => e.preventDefault());
 elSample.addEventListener('click', async () => {
   if (state.extracting || state.busy) { toast('抽取进行中，请稍候'); return; }
   state.busy = true;
+  state.batchCancelled = false;
+  state.fallbackCount = 0;
   let added = 0;
   try {
     for (const s of SAMPLES) {
+      if (state.batchCancelled) break;
       if (state.sources.some((x) => x.name === s.name)) continue;
       const paras = parseTxt(s.text);
       if (!paras.length) continue;
@@ -1673,11 +2200,19 @@ elClear.addEventListener('click', () => {
   state.items = [];
   state.highlight = null;
   state.lastFallback = null;
+  state.lastSummary = null;
+  state.progress = null;
+  state.llmAbort = null;
+  state.llmCancelled = false;
+  state.batchCancelled = false;
+  state.fallbackCount = 0;
+  state.llmDebug = null;
   state.lastDiscard = null;       // 否则清空后还能"撤销"出上一个会话的条目（spec S2.3）
   state.rawExpanded = window.matchMedia('(min-width: 1080px)').matches;  // 与初始态一致：桌面展开、窄屏折叠
   state.llmRequests = 0;          // S2.11.2-3：预算随会话清空归零
   saveBudget(0);                  // 同步写回，否则刷新后又读回旧值
   state.llmLastRequestAt = 0;
+  if (elLlmTestResult) elLlmTestResult.textContent = '';
   renderAll();
   toast('会话已清空');
 });
@@ -1710,6 +2245,8 @@ function applyLlmSettings() {
   llm.key = key;
   llm.model = model;
   state.lastFallback = null;
+  state.lastSummary = null;
+  if (elLlmTestResult) elLlmTestResult.textContent = '';
   renderAll();
   toast('已应用 AI 抽取设置，载入文件时将优先调用模型');
 }
@@ -1720,6 +2257,8 @@ function clearLlmSettings() {
   if (elLlmKey) elLlmKey.value = '';
   if (elLlmModel) elLlmModel.value = '';
   state.lastFallback = null;
+  state.lastSummary = null;
+  if (elLlmTestResult) elLlmTestResult.textContent = '';
   renderAll();
   toast('已清除设置，当前使用规则式抽取');
 }
@@ -1729,12 +2268,72 @@ async function retryAI() {
   if (!state.sources.length) { toast('还没有已载入的文件'); return; }
   if (state.extracting || state.busy) { toast('AI 抽取进行中，请稍候'); return; }
   state.busy = true;
+  state.batchCancelled = false;
+  state.fallbackCount = 0;
+  state.lastSummary = null;
   try {
     toast('正在按 AI 重新抽取：已确认的条目会保留；仍待确认的条目会被重新生成，未保存的手动修改会丢失', 6500);
-    for (let i = 0; i < state.sources.length; i++) await extractSource(i, { quiet: true });
+    for (let i = 0; i < state.sources.length; i++) {
+      if (state.batchCancelled) break;
+      await extractSource(i, { quiet: true });
+    }
   } finally {
     state.busy = false;
     renderAll();
+  }
+}
+
+/* 取消进行中的 AI 抽取：中断在途请求并停止后续分批。
+   已完成的批次保留（见 extractSource 的 LlmCancel 分支），不会换成规则式结果。 */
+function cancelAi() {
+  if (!state.progress && !state.llmAbort) return;
+  state.llmCancelled = true;
+  state.batchCancelled = true;
+  if (state.llmAbort) state.llmAbort.abort();
+  toast('正在取消 AI 抽取…');
+  renderAll();
+}
+
+/* 连接测试：只发一次最小请求，用来把「Key 错 / 模型名错 / 接口不让跨域」
+   和「抽取结果不好」区分开。同样计入会话预算并遵守最小请求间隔。 */
+let llmTesting = false;
+async function testLlmConnection() {
+  if (!llmConfigured()) {
+    if (elLlmTestResult) elLlmTestResult.textContent = '先填齐 Base URL / API Key / Model 再测试';
+    return;
+  }
+  if (llmTesting) return;
+  if (state.extracting || state.busy) {
+    if (elLlmTestResult) elLlmTestResult.textContent = '抽取进行中，请稍后再测试连接';
+    return;
+  }
+  llmTesting = true;
+  /* 上一次取消会把这两个标志留在 true，连接测试是独立动作，不能继承它 */
+  state.llmCancelled = false;
+  state.batchCancelled = false;
+  if (elLlmTestResult) elLlmTestResult.textContent = '正在测试连接…';
+  renderModeBadge();
+  try {
+    const r = await llmRequest({
+      model: llm.model,
+      temperature: 0,
+      max_tokens: 16,
+      messages: [
+        { role: 'system', content: '只回复两个字：正常' },
+        { role: 'user', content: 'ping' }
+      ]
+    }, '连接测试');
+    if (elLlmTestResult) {
+      elLlmTestResult.textContent = '连接成功（' + r.dbg.ms + ' ms）：' + clipText(r.content, 30);
+    }
+  } catch (e) {
+    if (elLlmTestResult) {
+      elLlmTestResult.textContent = '连接失败：'
+        + String(e.message).replace(/[，,]\s*已回退规则式抽取$/, '');
+    }
+  } finally {
+    llmTesting = false;
+    renderModeBadge();
   }
 }
 
@@ -1742,6 +2341,18 @@ const elLlmSave = $('#llmSave'), elLlmClearBtn = $('#llmClear');
 if (elLlmSave) elLlmSave.addEventListener('click', applyLlmSettings);
 if (elLlmClearBtn) elLlmClearBtn.addEventListener('click', clearLlmSettings);
 if (elLlmRetry) elLlmRetry.addEventListener('click', retryAI);
+if (elLlmTest) elLlmTest.addEventListener('click', testLlmConnection);
+
+/* 状态栏里的「取消 / 重试 AI」——用事件委托，因为状态栏内容每次渲染都会重建 */
+if (elAiStatus) {
+  elAiStatus.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const act = b.getAttribute('data-act');
+    if (act === 'cancelAi') cancelAi();
+    else if (act === 'retryAi') retryAI();
+  });
+}
 
 elReview.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act]');
