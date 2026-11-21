@@ -11,6 +11,7 @@
 
 - **阶段**：**LLM 抽取路径已按「精度不高、体验很差」做了整轮优化**——重写 system prompt（日期锚点/出处契约/跨段规则/示例）、候选段带上上下文窗口、模型输出五级容错解析、年份与出处按原文校正、同文件去重、空结果不再误回退；体验侧新增进度条+取消、回退常驻提示、结果摘要、连接测试、调用诊断面板。**已提交并推送：`66c44b2`**（本文件随后单独提交）。
 - **`main` 状态**：本轮代码提交 **`66c44b2`**（6 files / +1080 −136），已推送 `origin/main`（`git ls-remote` 确认 `refs/heads/main` = `66c44b2`，`git rev-list --left-right --count origin/main...HEAD` = **0 0**）；本文件随后单独提交并推送，`HEAD` 会再前移一个文档提交。**未建分支、未动 tag。**
+- **最新文档提交（2026-11-21 21:15）**：README 新增「AI 抽取背后」请求解剖并附 `docs/ai-request-example.json`，已提交本地 `main` **`9f68371`**（**仅提交，未推送**）；本文件随后单独提交。
 - **本轮改动（2026-11-21，按失败模式组织，详见 spec S2.12）**：
   1. **Prompt 重写**（`llmSystemPrompt()`）：加入「今天是 YYYY-MM-DD（星期）」、8 条规则（出处逐字、跨段取动作、签字人≠办事人、空结果合法…）、1 条格式示例。原文留档 `prompts/P-003`。
   2. **候选段上下文**：每段候选前后各带 2 段 + 首段（`LLM_CONTEXT_RADIUS`）；切批改为「60 段 + 12000 字符」双上限（`chunkParagraphs()`）。
@@ -24,8 +25,8 @@
 - **功能分支（未合并）**：`feat/relative-due` @ `.worktrees/relative-due`，基 `40c51fb`。脏文件：`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`docs/compose/spec/noticehunter-relative-due.md`（**未 commit**）。⚠️ 本轮又改了 `index.html` 与 `verify-llm.cjs`，**合并冲突面进一步扩大，必须人工合**（R-22）。
 - **功能内容**：相对时间（本周内/下周X/N天内等）按锚点日推算具体 due；规则+LLM 双路径；推算结果一律 low +「按锚点」。规格 `docs/compose/spec/noticehunter-relative-due.md`（status: delivered）。上次记录验收 145 PASS / 0 FAIL（本轮未复核该 worktree）。
 - **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。`refs/heads/main` = **`66c44b2`**（本轮已推送）；本文件随后单独提交并推送。
-- **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`、`LICENSE`、prompts P-001/P-002/**P-003**、`prototype/` 全套、三份功能规格。
-- **还没有**（**最大分数缺口**）：**项目文档、方案 PPT、演示视频——三件套 0 件**（`slides/`、`video/` 目录都不存在，`docs/` 只有 3 份功能规格），合计占预赛 **87.5 分**；团队名单、指导老师、提交日期平台（R-01/R-14）仍缺。
+- **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`（含「AI 抽取背后」请求解剖）、`LICENSE`、prompts P-001/P-002/**P-003**、`prototype/` 全套、三份功能规格、`docs/ai-request-example.json`（本地 stub 实际捕获的请求体）。
+- **还没有**（**最大分数缺口**）：**项目文档、方案 PPT、演示视频——三件套 0 件**（`slides/`、`video/` 目录都不存在，`docs/` 只有规格与一份请求样例），合计占预赛 **87.5 分**；团队名单、指导老师、提交日期平台（R-01/R-14）仍缺。
 - **阻塞**：无技术阻塞。合并/提交/推送需用户当场授权（AGENTS §3.5）。
 - **时间提醒（必须看）**：今天是 **2026-11-21**，竞赛通知落款 2026-10-10、第 12 周为硬截止。**D-011 的回切条件（第 11 周末三件套仍为 0 → 材料立刻回到第一优先级）很可能已经触发**，但 R-01 的具体日期仍未确认。是否立即停开发、转做三件套，**待用户拍板**。
 
@@ -180,6 +181,7 @@
 ## 4. 任务板
 
 ### 进行中（文件占用登记：文件 → 智能体 → 开始时间）
+- （已释放 2026-11-21 21:05）**README 增加「AI 请求解剖」章节**（`lead`）：占用 `README.md`、`HANDOFF.md`；另新增 `docs/ai-request-example.json`。临时验证脚本 `prototype/test/_capture-request.cjs` 已删除。**只改文档，未改产品代码**，见第 6 节本条。
 - （已释放 2026-11-21 17:05）**LLM 抽取精度与体验优化**（用户直接指令「优化一下LLM方式下的提取功能，现在的精度不高，体验很差」）已完成并验收：`prototype/index.html`、`prototype/verify-llm.cjs`、`prototype/test/fake-llm-server.js`、`docs/compose/spec/noticehunter-llm.md`、`prompts/P-003-LLM抽取精度优化.md`（新建）、`HANDOFF.md` 占用释放。**改动未 commit / push**，见第 6 节最后两条。
 - （已释放 2026-11-21 16:25）「2 原文 / 3 待确认 并排 + 原文内联高亮」已完成并验收，`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`HANDOFF.md` 占用释放；改动**未 commit / push**，见第 6 节最后一条。
 - （已释放 2026-11-21）待确认卡片「左原文 / 右操作」分栏已完成，占用释放；改动已提交并推送（`ce2df66`），见第 6 节。
@@ -287,6 +289,7 @@
 | 2026-11-21 17:10 | 主智能体 | **文档与 Prompt 留档收口**：`docs/compose/spec/noticehunter-llm.md` 新增 **S2.12**（失败模式→改法表、推翻的四处旧条文、已知边界、T14–T22 验收口径）并更新 front-matter；新建 `prompts/P-003-LLM抽取精度优化.md`（新 prompt 原文 + 8 个失败模式 + 人工核查，如实写明「未在真实 API 上验收」）；`README.md` 的「如何复现验收结果」从 99 条更新为 **151 条**（67 + 84）并补新覆盖面；本文件第 1/3/4/5/6/7 节更新（新增 D-013、R-21、R-22，释放占用） | 回读确认：spec 内 T14–T22 与 `verify-llm.cjs` 实际断言一一对应；**P-003 的 prompt 原文与页面 `llmSystemPrompt()` 逐字核对通过**（`PROMPT_MATCH true`，1363 字符；首次核对发现星期写成「周五」，实际 2026-11-21 是周六，已改正）；HANDOFF 第 1 节引用的 151 PASS 与第 6 节上一条实测一致。**未提交、未推送、未建分支** |
 | 2026-11-21 17:55 | 主智能体 | **收尾补一处并发守卫**：`#llmTest`（连接测试）在 `state.busy`（多文件载入 / 重试整批）期间也禁用，`testLlmConnection()` 里同样拒绝在抽取在途时启动——否则在文件间空隙点它会造成两次请求并发，破坏 S2.6 的单飞约定 | 内联脚本 `node --check` 通过；**两套验收复跑 `verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 84 PASS / 0 FAIL = 151 PASS / 0 FAIL**。**未提交、未推送** |
 | 2026-11-21 18:35 | 主智能体 | **提交并推送（用户当场授权原话「停吧。然后提交到main，然后推送到GitHub」）**：先停掉 8761 静态服务器与 8791 stub 两个后台 job；`git add` 6 个改动文件 + 新建 `prompts/P-003` → commit **`66c44b2`**（6 files / +1080 −136）→ `git push origin main`；本文件随后单独提交并推送。**未跟踪的 `对话记录/`（非本项目产物）没有提交** | `git ls-remote --heads origin` 确认 `refs/heads/main` = **`66c44b2`**；`git rev-list --left-right --count origin/main...HEAD` = **0 0**；提交只含预期 6 个文件，无 `对话记录/`。**未建分支、未动 tag、未触碰 `.worktrees/` 与 WorkBuddy** |
+| 2026-11-21 21:05 | 主智能体（lead） | **README 增加「AI 抽取背后：一次真实请求长什么样」章节，并新增 `docs/ai-request-example.json`**（用户要求「展示一下 AI 抽取背后是如何运行的，比如向 API 发送了哪些内容」）：① 6 步调用链（解析→筛候选→±2 段上下文→切批→请求→校验）；② 请求头/请求体骨架；③ system prompt 与 user content 的实际内容；④ 22 段样例只送 13 段的解释与 ±2 窗口边界；⑤ 返回后的容错/字段校验/整文件回退；⑥ 七项硬上限与自查方法；⑦ 仓库结构补该 JSON。**只改文档** | 用仓库 stub + Playwright 实跑「配置 → 载入 `notice-internship.txt` → 发请求」，捕获 **1 次** `POST /chat/completions`，请求体写入 `docs/ai-request-example.json`；`JSON.parse` 通过、UTF-8 中文回读正常、文件内无 `sk-`/`Authorization`/密钥；样例 22 段、候选 [3]/[14]/[22]、实送 13 段与文档一致；README 相对链接目标存在。**未改产品代码，未重跑 151 条**；已提交本地 `main` **`9f68371`**（仅提交，未推送），未建分支。 |
 
 ---
 
