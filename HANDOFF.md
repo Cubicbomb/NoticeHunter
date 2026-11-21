@@ -3,22 +3,23 @@
 > **读写规则**：第 1、4、5 节描述**当前状态**，允许覆盖更新；第 2 节是竞赛规则缓存；第 3、6、7 节**只增不改**。
 > 协作规则见 `AGENTS.md`。**新接手的智能体请从第 1 节和第 5 节看起。**
 
-**最后更新**：2026-11-21 ｜ **更新者**：主智能体（首屏与健壮性修复已验收，134 PASS；relative-due 仍在 worktree 待合并）
+**最后更新**：2026-11-21 ｜ **更新者**：主智能体（「2 原文 / 3 待确认」并排 + 原文内联高亮已验收，136 PASS；未提交）
 
 ---
 
 ## 1. 当前位置
 
-- **阶段**：**首屏/健壮性修复 + 原文区可见性 + 待确认卡片左右分栏均已完成并验收；relative-due 仍在 worktree 等待用户授权合并。** 本轮改动已提交并推送：`ce2df66`（本文件随后单独提交）。
-- **`main` 状态**：主目录 `main` @ `40c51fb`（`40c51fb` 是 `a52083b` 之后的文档收口提交，与 `origin/main` 同步）；本轮在其工作树上直接改，**未 commit / push**。
-- **本轮改动（3 个文件，2026-11-21）**：
-  - `prototype/index.html`：① 补 `[hidden]{display:none!important}`，修「展开全文」开关被 `.row{display:flex}` 覆盖而恒显示；② 汇总统计条无条目时 `hidden`，首屏不再出现空蓝条；③ `.txt` 先严格 UTF-8、失败回落 `gb18030`，GBK 通知不再静默乱码；④ 缺 `DecompressionStream` 时给出明确提示，不再误报「文件已损坏」；⑤ 非法截止时间回填旧值，避免「看着改了、其实没改」；⑥ 撞期只统计未完成项，与逾期口径一致；⑦ **待确认卡片改左右两栏**——左栏原文 + 抽取位置 `<mark>` 高亮（日期与 `HH:mm` 分段标出），右栏置信度/原因/四个字段/确认丢弃按钮；`.fields` 改 `auto-fit minmax(190px,1fr)` 保证窄栏下输入框不截成一条缝；`.split` 比例 1.05/0.95 → 1.25/0.75 给待确认区更多宽度；⑧ **原文区**去掉 `#rawList` 的 300px 内层滚动、把「展开全部原文 / 收起」控件从面板下方移到**上方**，并写明「每份只显示前 6 段（共 N 段）」。
-  - `prototype/verify.cjs`：新增 5 条回归断言（首屏 hidden ×2、非法 due 回填、已完成不计撞期、GBK 解码）。
-  - 本文件：第 1/4/6 节。
-- **最近验收（2026-11-21，主目录）**：`verify.cjs` **65 PASS / 0 FAIL** + `verify-llm.cjs` **69 PASS / 0 FAIL** = **134 PASS / 0 FAIL**。
-- **功能分支（未合并）**：`feat/relative-due` @ `.worktrees/relative-due`，基 `40c51fb`。脏文件：`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`docs/compose/spec/noticehunter-relative-due.md`（143/126/45 行改动，**未 commit**）。⚠️ **与本轮改的是同两个文件，将来合并必然冲突，必须人工合。**
+- **阶段**：**「2 原文」与「3 待确认」已改为桌面端左右并排；待确认条目直接在第 2 节原文内联高亮（低置信度黄 / 高置信度蓝），卡片不再重复原文。** 已提交并推送：**`7c57439`**（本文件随后单独提交）。
+- **`main` 状态**：本轮代码提交 **`7c57439`**，已推送 `origin/main`（`git ls-remote` 确认 `refs/heads/main` = `7c57439`）；本文件随后单独提交并推送，`HEAD` 会再前移一个文档提交。
+- **本轮改动（4 个文件，2026-11-21）**：
+  - `prototype/index.html`：① 新增 `.stage` 网格，≥1080px 时 1.06fr / .94fr 两栏；左栏 `position:sticky` + `.raw-panel` 独立滚动（`calc(100vh - 160px)`），右侧条目再多原文也留在屏幕里；<1080px 回单列。② 原文按 `pending` 条目内联渲染 `<mark class="mk low|high">`，日期与 `HH:mm` 分段标出；同一段多条待确认时合并区间、低置信度优先。③ 卡片移除 `.quote` / `.card-src`，改为单栏「徽章 + 文件名·第 N 段定位按钮 + 原因 + 四字段 + 确认/丢弃」。④ 双向定位：点卡片定位按钮→原文滚动 + 卡片 `.active`；点原文高亮段落→右侧对应卡片滚入视野。⑤ 原文默认展开（桌面）/折叠（窄屏）；折叠提示会说明还有多少条待确认在未显示段落里。⑥ 被抽取段落加 `role=button` / `tabindex`，可在原文侧键盘定位。
+  - `prototype/verify.cjs`：新增 2 条 T12 断言（原文内联高亮 ≥6 处、卡片不再有 `.quote`）；T9 改测 `.stage` 两栏/单列（原 `.split` 布局被本次改版取代）。
+  - `prototype/verify-llm.cjs`：`readCards` 改读 `data-src-idx` / `data-para`；「sourceIndex=1 映射原文首段」改为校验卡片指向第 1 段且原文首段含通知标题（不再依赖已删除的 `.quote`）。
+  - 本文件：第 1/3/4/6 节（新增 D-012）。
+- **最近验收（2026-11-21，主目录）**：`verify.cjs` **67 PASS / 0 FAIL** + `verify-llm.cjs` **69 PASS / 0 FAIL** = **136 PASS / 0 FAIL**。视觉核对 1440×1000：两栏 593 / 525px、左栏吸顶 `top=14`、高 840px、正文可见 42 段中的 21 段并独立滚动、12 处高亮（8 黄 / 4 蓝）、11 张卡片；1000×900：单列、折叠 12 段、提示「另有 9 条待确认在未显示段落中」。截图在 `output/layout-2-3-1440.png`、`layout-2-3-1440-jump.png`、`layout-2-3-1000.png`（`output/` 已忽略，不随仓库交付）。
+- **功能分支（未合并）**：`feat/relative-due` @ `.worktrees/relative-due`，基 `40c51fb`。脏文件：`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`docs/compose/spec/noticehunter-relative-due.md`（**未 commit**）。⚠️ **与本轮改的是同两个文件，将来合并必然冲突，必须人工合。**
 - **功能内容**：相对时间（本周内/下周X/N天内等）按锚点日推算具体 due；规则+LLM 双路径；推算结果一律 low +「按锚点」。规格 `docs/compose/spec/noticehunter-relative-due.md`（status: delivered）。上次记录验收 145 PASS / 0 FAIL（本轮未复核该 worktree）。
-- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。`refs/heads/main` = `40c51fb`。
+- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。`refs/heads/main` = `6e8b445`。
 - **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`、`LICENSE`、prompts P-001/P-002、`prototype/` 全套、三份功能规格。
 - **还没有**（**最大分数缺口**）：**项目文档、方案 PPT、演示视频——三件套 0 件**（`slides/`、`video/` 目录都不存在，`docs/` 只有 3 份功能规格），合计占预赛 **87.5 分**；团队名单、指导老师、提交日期平台（R-01/R-14）仍缺。
 - **阻塞**：无技术阻塞。合并/提交/推送需用户当场授权（AGENTS §3.5）。
@@ -153,11 +154,19 @@
   3. R-01 确认的截止日早于预期。
   三者任一满足，本条失效，**材料立刻回到第一优先级**。把回切条件写在这里，就是为了避免开发做得正顺手时忘了时间。
 
+### D-012 · 布局改版：「2 原文」与「3 待确认」并排，待确认内联高亮
+- **日期**：2026-11-21 ｜ **状态**：已定（用户在对话中直接指令：「把2原文和3待确认两块横向并排放置，待确认信息直接在原文中高亮。排版适配电脑屏幕即可」）
+- **决策**：① 删除 D-008 的 `.split`（待确认 + 行动清单并排），改为 `.stage`：≥1080px 时「2 原文」左栏（sticky + 独立滚动）与「3 待确认」右栏并排；<1080px 单列。② 待确认条目直接在原文里内联高亮——低置信度 `<mark class="low">` 黄、高置信度 `<mark class="high">` 蓝，日期与 `HH:mm` 分段标出；段落同时加淡底并支持点击反向定位右侧卡片。③ 待确认卡片**不再重复原文**（删除 `.quote` / `.card-src`），只保留徽章、文件名·段号定位、原因、四字段与确认/丢弃。④ 原文桌面默认展开、窄屏默认折叠。
+- **取代关系**：本条**取代** `docs/compose/spec/noticehunter-deadline.md` 的 **S2.4（待确认与清单分屏）/ T9（`.split` 两列断言）** 与 D-008 中「待确认与清单并排」那一项。规格文件按历史记录保留不改，验收口径以本条与 `verify.cjs` T9（改测 `.stage`）为准。
+- **理由**：① 卡片重复整段原文，在双栏布局里等于把同一段话看两遍，真正要看的「抽取位置」反而被挤在小字引用块里；② 原文与待确认并排后，「左边看证据、右边做确认」形成一条视线，人工核对的成本最低；③ 行动清单是输出物，不需要和输入并排，单独整宽更易读。
+- **不改变**：抽取逻辑、数据结构、导出格式、LLM 安全上限、行动清单与截止日汇总的行为。
+
 ---
 
 ## 4. 任务板
 
 ### 进行中（文件占用登记：文件 → 智能体 → 开始时间）
+- （已释放 2026-11-21 16:25）「2 原文 / 3 待确认 并排 + 原文内联高亮」已完成并验收，`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`HANDOFF.md` 占用释放；改动**未 commit / push**，见第 6 节最后一条。
 - （已释放 2026-11-21）待确认卡片「左原文 / 右操作」分栏已完成，占用释放；改动已提交并推送（`ce2df66`），见第 6 节。
 - ⚠️ **流程补记**：同一轮的「原文区显示不完整」修复**没有先在 §4 登记就动手了**，属违反单一写者流程的疏漏；改动仍只涉及 `prototype/index.html` 与本文件，已在本条如实记录，不补写假的登记行。
 - （已释放 2026-11-21）本轮 `prototype/index.html`、`prototype/verify.cjs`、`HANDOFF.md` 的占用已释放，改动见第 6 节最后一条，**未提交**。
@@ -255,6 +264,8 @@
 | 2026-11-21 14:15 | 主智能体 | **原文区「显示不完整」修复（用户反馈「样例显示不完整」）**：① 去掉 `#rawList` 的 `max-height:300px;overflow:auto`——折叠态本来就按「每份 6 段」限高，再套一层内滚动条会让第二份样例只剩一个空标题，看起来像没加载；② `#rawToggleRow` 从面板**下方**移到**上方**，按钮文案改「展开全部原文」，提示改「当前每份只显示前 6 段（共 N 段，已显示 M 段）」。**未 commit / push** | 实跑（1280×900）：折叠态 12 段、按钮在 y≈481 首屏可见；点开后 42 段、文案切「收起原文」/「已展开，正在显示全部 42 段」；控制台零报错。`verify.cjs` **65 PASS / 0 FAIL** + `verify-llm.cjs` **69 PASS / 0 FAIL** = **134 PASS / 0 FAIL** 零回归（T10 折叠/展开断言未受影响）。截图：`C:\Users\ASUS\AppData\Local\Temp\nh-raw3.png`（折叠）、`nh-top3.png`（展开） |
 | 2026-11-21 13:57 | 主智能体 | **待确认卡片改「左原文 / 右操作」分栏（用户指令「原文放左边、抽取位置高亮、确认操作块放右边」）**：`.card` 改 CSS Grid 两栏，左栏 `.card-src` 放「原文 · 文件名 第 N 段」+ `.quote`，右栏 `.card-main` 放置信度/AI 徽章、原因 chip、四个字段、确认/丢弃/看原文出处；新增 `sourceHighlight()` 在原文里用 `<mark>` 标出抽取到的时间（日期与 `HH:mm` 分开时分两段标，模糊时间如「本周内」也标）；`detectDue()` 返回值补 `end` 供定位；`.fields` 改 `repeat(auto-fit, minmax(190px, 1fr))`；`.split` 改 1.25fr/0.75fr；≤720px 自动回单栏。**未 commit / push** | 语法：内联脚本 `node --check` 通过。**实跑验收：`verify.cjs` 65 PASS / 0 FAIL + `verify-llm.cjs` 69 PASS / 0 FAIL = 134 PASS / 0 FAIL（零回归）**。**真实浏览器截图核对**（1440×1100）：卡片 `display:grid`、两栏 356/291px、11 张卡共 12 处 `<mark>`（含 `2026 年 11 月 5 日` 与单独标出的 `17:00`、`本周内`）、输入框宽 291px 不再截成一条缝、控制台零报错；900×1000 下自动单列、卡片仍左右两栏；≤720px 按 CSS 回单栏（断点未截图实测）。**截图证据在 `C:\Users\ASUS\AppData\Local\Temp\nh-review-card2.png` / `nh-review-wide2.png` / `nh-review-narrow2.png`（临时目录，不随仓库交付）** |
 | 2026-11-21 14:25 | 主智能体 | **提交并推送（用户当场授权原话「提交到main，推送到github」）**：`git add prototype/index.html prototype/verify.cjs` → commit **`ce2df66`**（2 files / +178 −33）→ `git push origin main`；本文件随后单独提交并再次推送 | `git ls-remote --heads origin` 确认 `refs/heads/main` = **`ce2df66`**；`git rev-list --left-right --count origin/main...HEAD` = **0 0**；未建分支、未动 tag、未触碰 `.worktrees/` 与 WorkBuddy；未跟踪的 `对话记录/`（非本项目产物）**没有**被提交 |
+| 2026-11-21 16:25 | 主智能体 | **「2 原文 / 3 待确认」横向并排 + 待确认直接内联原文（用户指令：「把2原文和3待确认两块横向并排放置，待确认信息直接在原文中高亮。排版适配电脑屏幕即可」）**：① 新增 `.stage` 网格，≥1080px 为 1.06fr/.94fr 两栏，左栏 `sticky top:14px` + `.raw-panel` 独立滚动（`calc(100vh - 160px)`），<1080px 回单列；② `renderRaw()` 按 `pending` 条目在两栏原文里渲染 `<mark class="mk low|high">`（日期与 `HH:mm` 分段、同段多条目合并区间、低置信度优先），段落加 `data-ids`/`role=button`；③ 卡片删掉 `.quote`/`.card-src`，改为单栏「徽章 + 文件名·第 N 段定位 + 原因 + 四字段 + 确认/丢弃」；④ `jumpTo()` 同时刷原文 `.hl` 与卡片 `.active`，点原文高亮段落反向滚到卡片；⑤ 原文桌面默认展开、窄屏默认折叠，折叠提示给出未显示段落里的待确认条数；⑥ 曾试 `.para-hd` 吸顶，实测与段落重叠，**已回退**。`verify.cjs` 新增 T12 两条（内联高亮 ≥6 处、卡片无 `.quote`）并把 T9 改测 `.stage`；`verify-llm.cjs` 改读 `data-src-idx`/`data-para` 校验 sourceIndex=1。**未 commit / push** | 语法：内联 JS 与两脚本 `node --check` 全过。**实跑：`verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 69 PASS / 0 FAIL = 136 PASS / 0 FAIL**（起 8761 + 8791，跑完停进程；沙箱仍不能写 `prototype/` 子目录，两套验收以 danger-full-access 跑，临时夹具均已清理）。**视觉核对（真实 Edge）**：1440×1000 两栏 593/525px、左栏吸顶 `top=14`、高 840px、42 段中可见 21 段并独立滚动；12 处 `<mark>`（8 黄 / 4 蓝），p14 蓝标 `2026 年 11 月 5 日` + 单独 `17:00`，点卡片后该段 `.hl` 且卡片 `.active`；1000×900 单列、折叠 12 段、提示「另有 9 条待确认在未显示段落中」；控制台零报错。截图：`output/layout-2-3-1440.png` / `layout-2-3-1440-jump.png` / `layout-2-3-1000.png`（`output/` 忽略，不交付）。**未建分支、未动 tag、未触碰 `.worktrees/` 与 WorkBuddy** |
+| 2026-11-21 16:36 | 主智能体 | **提交并推送（用户当场授权原话「提交并推送」）**：`git add prototype/index.html prototype/verify.cjs prototype/verify-llm.cjs` → commit **`7c57439`**（3 files / +216 −92）→ `git push origin main`；本文件随后单独提交并再推送 | `git ls-remote --heads origin` 确认 `refs/heads/main` = **`7c57439`**；`git rev-list --left-right --count origin/main...HEAD` = **0 0**；未建分支、未动 tag、未暂存未跟踪的 `对话记录/`（非本项目产物） |
 
 ---
 
