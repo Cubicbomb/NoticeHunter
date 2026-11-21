@@ -3,24 +3,28 @@
 > **读写规则**：第 1、4、5 节描述**当前状态**，允许覆盖更新；第 2 节是竞赛规则缓存；第 3、6、7 节**只增不改**。
 > 协作规则见 `AGENTS.md`。**新接手的智能体请从第 1 节和第 5 节看起。**
 
-**最后更新**：2026-11-21 ｜ **更新者**：主智能体（「2 原文 / 3 待确认」并排 + 原文内联高亮已验收，136 PASS；未提交）
+**最后更新**：2026-11-21 ｜ **更新者**：主智能体（LLM 抽取精度与体验优化已验收并推送：`66c44b2`，**151 PASS / 0 FAIL**；本文件随后单独提交）
 
 ---
 
 ## 1. 当前位置
 
-- **阶段**：**「2 原文」与「3 待确认」已改为桌面端左右并排；待确认条目直接在第 2 节原文内联高亮（低置信度黄 / 高置信度蓝），卡片不再重复原文。** 已提交并推送：**`7c57439`**（本文件随后单独提交）。
-- **`main` 状态**：本轮代码提交 **`7c57439`**，已推送 `origin/main`（`git ls-remote` 确认 `refs/heads/main` = `7c57439`）；本文件随后单独提交并推送，`HEAD` 会再前移一个文档提交。
-- **本轮改动（4 个文件，2026-11-21）**：
-  - `prototype/index.html`：① 新增 `.stage` 网格，≥1080px 时 1.06fr / .94fr 两栏；左栏 `position:sticky` + `.raw-panel` 独立滚动（`calc(100vh - 160px)`），右侧条目再多原文也留在屏幕里；<1080px 回单列。② 原文按 `pending` 条目内联渲染 `<mark class="mk low|high">`，日期与 `HH:mm` 分段标出；同一段多条待确认时合并区间、低置信度优先。③ 卡片移除 `.quote` / `.card-src`，改为单栏「徽章 + 文件名·第 N 段定位按钮 + 原因 + 四字段 + 确认/丢弃」。④ 双向定位：点卡片定位按钮→原文滚动 + 卡片 `.active`；点原文高亮段落→右侧对应卡片滚入视野。⑤ 原文默认展开（桌面）/折叠（窄屏）；折叠提示会说明还有多少条待确认在未显示段落里。⑥ 被抽取段落加 `role=button` / `tabindex`，可在原文侧键盘定位。
-  - `prototype/verify.cjs`：新增 2 条 T12 断言（原文内联高亮 ≥6 处、卡片不再有 `.quote`）；T9 改测 `.stage` 两栏/单列（原 `.split` 布局被本次改版取代）。
-  - `prototype/verify-llm.cjs`：`readCards` 改读 `data-src-idx` / `data-para`；「sourceIndex=1 映射原文首段」改为校验卡片指向第 1 段且原文首段含通知标题（不再依赖已删除的 `.quote`）。
-  - 本文件：第 1/3/4/6 节（新增 D-012）。
-- **最近验收（2026-11-21，主目录）**：`verify.cjs` **67 PASS / 0 FAIL** + `verify-llm.cjs` **69 PASS / 0 FAIL** = **136 PASS / 0 FAIL**。视觉核对 1440×1000：两栏 593 / 525px、左栏吸顶 `top=14`、高 840px、正文可见 42 段中的 21 段并独立滚动、12 处高亮（8 黄 / 4 蓝）、11 张卡片；1000×900：单列、折叠 12 段、提示「另有 9 条待确认在未显示段落中」。截图在 `output/layout-2-3-1440.png`、`layout-2-3-1440-jump.png`、`layout-2-3-1000.png`（`output/` 已忽略，不随仓库交付）。
-- **功能分支（未合并）**：`feat/relative-due` @ `.worktrees/relative-due`，基 `40c51fb`。脏文件：`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`docs/compose/spec/noticehunter-relative-due.md`（**未 commit**）。⚠️ **与本轮改的是同两个文件，将来合并必然冲突，必须人工合。**
+- **阶段**：**LLM 抽取路径已按「精度不高、体验很差」做了整轮优化**——重写 system prompt（日期锚点/出处契约/跨段规则/示例）、候选段带上上下文窗口、模型输出五级容错解析、年份与出处按原文校正、同文件去重、空结果不再误回退；体验侧新增进度条+取消、回退常驻提示、结果摘要、连接测试、调用诊断面板。**已提交并推送：`66c44b2`**（本文件随后单独提交）。
+- **`main` 状态**：本轮代码提交 **`66c44b2`**（6 files / +1080 −136），已推送 `origin/main`（`git ls-remote` 确认 `refs/heads/main` = `66c44b2`，`git rev-list --left-right --count origin/main...HEAD` = **0 0**）；本文件随后单独提交并推送，`HEAD` 会再前移一个文档提交。**未建分支、未动 tag。**
+- **本轮改动（2026-11-21，按失败模式组织，详见 spec S2.12）**：
+  1. **Prompt 重写**（`llmSystemPrompt()`）：加入「今天是 YYYY-MM-DD（星期）」、8 条规则（出处逐字、跨段取动作、签字人≠办事人、空结果合法…）、1 条格式示例。原文留档 `prompts/P-003`。
+  2. **候选段上下文**：每段候选前后各带 2 段 + 首段（`LLM_CONTEXT_RADIUS`）；切批改为「60 段 + 12000 字符」双上限（`chunkParagraphs()`）。
+  3. **解析容错**：`parseModelContent()` 去围栏 → 括号配对扫描 → 单对象包装 → 截断补齐 → 逐对象抢救；`[]` 视为合法空结果。
+  4. **字段补正**：`mapLLMEntries()` 按 `dueRaw` 在原文中的实际位置校正 `sourceIndex`（宽松匹配全角/空格）；年份按原文/当前年校正；`dueRaw` 无据 → 强制 low；同文件去重；置信度以本地证据为准。
+  5. **调用层**：`llmRequest()` 拆出，超时 15s→30s，HTTP 错误带服务端说明，新增取消（保留已完成批次）、`#llmTest` 连接测试、`#llmDebug` 诊断（只存内存、不含密钥）。
+  6. **UI**：`#aiStatus` 三态状态栏（进行中可取消 / 已回退可重试 / 上次结果摘要）；卡片截止时间 placeholder 缩短。
+  7. 验收：`verify-llm.cjs` 新增 T14–T22；`fake-llm-server.js` 支持 `{"raw":"..."}` 直接覆盖返回原文。
+- **最近验收（2026-11-21，主目录）**：**`verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 84 PASS / 0 FAIL = 151 PASS / 0 FAIL**。两条测试均以 danger-full-access 运行（沙箱仍不能写 `prototype/` 子目录，脚本要生成临时夹具），跑完夹具已自删。视觉核对（1440×1100，stub）：状态栏摘要、进度条+取消、连接测试结果、诊断面板均正常，控制台零报错；截图在 `C:\Users\ASUS\AppData\Local\Temp\nh-llm-{review,progress,settings}.png`（临时目录，不随仓库交付）。
+- **未验证（必须如实写进项目文档）**：**新 prompt 没有在真实第三方 API 上跑过**（本机无 Key，也不擅自用他人 Key）。已实测的是「模型输出不听话时客户端不再整文件回退」；「prompt 对真实模型的提升」是设计推断。见第 7 节 R-21。
+- **功能分支（未合并）**：`feat/relative-due` @ `.worktrees/relative-due`，基 `40c51fb`。脏文件：`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`docs/compose/spec/noticehunter-relative-due.md`（**未 commit**）。⚠️ 本轮又改了 `index.html` 与 `verify-llm.cjs`，**合并冲突面进一步扩大，必须人工合**（R-22）。
 - **功能内容**：相对时间（本周内/下周X/N天内等）按锚点日推算具体 due；规则+LLM 双路径；推算结果一律 low +「按锚点」。规格 `docs/compose/spec/noticehunter-relative-due.md`（status: delivered）。上次记录验收 145 PASS / 0 FAIL（本轮未复核该 worktree）。
-- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。`refs/heads/main` = `6e8b445`。
-- **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`、`LICENSE`、prompts P-001/P-002、`prototype/` 全套、三份功能规格。
+- **远程仓库**：`git@github.com:Cubicbomb/NoticeHunter.git`。`refs/heads/main` = **`66c44b2`**（本轮已推送）；本文件随后单独提交并推送。
+- **已有**：竞赛通知 docx（只读）、`AGENTS.md`、本文件、`README.md`、`LICENSE`、prompts P-001/P-002/**P-003**、`prototype/` 全套、三份功能规格。
 - **还没有**（**最大分数缺口**）：**项目文档、方案 PPT、演示视频——三件套 0 件**（`slides/`、`video/` 目录都不存在，`docs/` 只有 3 份功能规格），合计占预赛 **87.5 分**；团队名单、指导老师、提交日期平台（R-01/R-14）仍缺。
 - **阻塞**：无技术阻塞。合并/提交/推送需用户当场授权（AGENTS §3.5）。
 - **时间提醒（必须看）**：今天是 **2026-11-21**，竞赛通知落款 2026-10-10、第 12 周为硬截止。**D-011 的回切条件（第 11 周末三件套仍为 0 → 材料立刻回到第一优先级）很可能已经触发**，但 R-01 的具体日期仍未确认。是否立即停开发、转做三件套，**待用户拍板**。
@@ -161,11 +165,22 @@
 - **理由**：① 卡片重复整段原文，在双栏布局里等于把同一段话看两遍，真正要看的「抽取位置」反而被挤在小字引用块里；② 原文与待确认并排后，「左边看证据、右边做确认」形成一条视线，人工核对的成本最低；③ 行动清单是输出物，不需要和输入并排，单独整宽更易读。
 - **不改变**：抽取逻辑、数据结构、导出格式、LLM 安全上限、行动清单与截止日汇总的行为。
 
+### D-013 · LLM 抽取精度与体验优化（推翻 S2.3 / S2.4 / S2.5 / S2.6 的四处旧条文）
+- **日期**：2026-11-21 ｜ **状态**：已定（用户在对话中直接指令：「优化一下LLM方式下的提取功能，现在的精度不高，体验很差」）
+- **决策**：对 LLM 抽取路径做整轮优化，分两层：
+  1. **精度**：重写 system prompt（今天日期+星期锚点、8 条规则、1 条格式示例）；候选段前后各带 2 段上下文 + 首段；模型输出五级容错解析（去围栏/括号配对/单对象/截断补齐/逐对象抢救）；用 `dueRaw` 在原文中的实际位置校正 `sourceIndex`；年份按原文/当前年校正；`dueRaw` 无据即降 low；同文件去重；`[]` 视为合法空结果。
+  2. **体验**：`#aiStatus` 三态（进行中可取消 / 已回退可重试 / 结果摘要）、`#llmTest` 连接测试、`#llmDebug` 诊断面板、超时 15s→30s、HTTP 错误带服务端说明。
+- **推翻关系**：本条**推翻** `docs/compose/spec/noticehunter-llm.md` 的 ① S2.3「超时 15s」→30s；② S2.3「空数组视为失败」→ 合法空结果；③ S2.4「只校 due 格式」→ 增加出处/年份/去重/本地置信度；④ S2.5「只送候选段」→ 候选段上下文窗口 + 字符上限；⑤ S2.6「失败一律整文件回退」→ 新增「用户主动取消保留已完成批次」。这些旧条文按只增不改保留在 spec 历史里，新口径见该文件 S2.12。
+- **理由**：旧 prompt 缺「今天几号」导致年份错（卡片显示「已逾期 300 天」）；只送孤立候选段导致「动作与截止分处两段」时把截止行当动作；JSON 解析只认整段围栏导致一句前言就整文件回退；空数组误判失败导致规则式凭空造条目——都是可复现的精度问题，不是主观感受。
+- **明确不做**：① 相对时间锚点推算（`feat/relative-due` 分支已有方案，未合并，避免重复实现造成更大冲突）；② 不为炫技引入流式输出 / 多轮对话 / 自动重试；③ 不合并、不推送、不建新分支（AGENTS §3.5 未授权）。
+- **未验证边界**：新 prompt 未在真实第三方 API 上跑过（无可用 Key），见 R-21。
+
 ---
 
 ## 4. 任务板
 
 ### 进行中（文件占用登记：文件 → 智能体 → 开始时间）
+- （已释放 2026-11-21 17:05）**LLM 抽取精度与体验优化**（用户直接指令「优化一下LLM方式下的提取功能，现在的精度不高，体验很差」）已完成并验收：`prototype/index.html`、`prototype/verify-llm.cjs`、`prototype/test/fake-llm-server.js`、`docs/compose/spec/noticehunter-llm.md`、`prompts/P-003-LLM抽取精度优化.md`（新建）、`HANDOFF.md` 占用释放。**改动未 commit / push**，见第 6 节最后两条。
 - （已释放 2026-11-21 16:25）「2 原文 / 3 待确认 并排 + 原文内联高亮」已完成并验收，`prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`、`HANDOFF.md` 占用释放；改动**未 commit / push**，见第 6 节最后一条。
 - （已释放 2026-11-21）待确认卡片「左原文 / 右操作」分栏已完成，占用释放；改动已提交并推送（`ce2df66`），见第 6 节。
 - ⚠️ **流程补记**：同一轮的「原文区显示不完整」修复**没有先在 §4 登记就动手了**，属违反单一写者流程的疏漏；改动仍只涉及 `prototype/index.html` 与本文件，已在本条如实记录，不补写假的登记行。
@@ -179,7 +194,7 @@
 - [ ] **组建团队 + 联系指导老师**（R-14）—— **按 D-011 后置**
 - [ ] **确认 R-19 演示方案再开录** —— **按 D-011 后置**，方案建议已写在 R-19 里，开录时直接取用
 - [ ] **向任课老师确认 R-01**：本课程第 5/11/12/15 周对应的具体日期、提交平台与提交格式要求（**D-011 的回切条件依赖它**）
-- [ ] **补 `prompts/P-003`（本轮迭代留档）**：评分首项 12.5% 要求「关键 Prompt + 迭代优化 + 测试验证 + 人工核查」；本轮 spec 的 Journey log 已写好 8 条判断，可直接改写
+- [x] ~~**补 `prompts/P-003`（本轮迭代留档）**~~：2026-11-21 已补 `prompts/P-003-LLM抽取精度优化.md`（内容覆盖本轮 LLM 精度迭代；2026-10-16 那轮的 Prompt 已在 P-002 里，不重复留档）
 - [ ] **收尾清理（等用户确认，别擅自做）**：`feat/noticehunter-llm` 分支与 `.worktrees/noticehunter-llm` 已合并、可删；WorkBuddy 的 worktree 与分支见 R-12
 - [ ] **后续提交习惯**：先更新 `HANDOFF.md` 变更日志，再 `git add` / `commit` / `push`，避免提交内容与交接状态脱节
 - [ ] 加分项（有余力才做）：多文档合并、日历导出、多人分工、PDF / 图片 OCR
@@ -225,10 +240,12 @@
 ### 下一步（按顺序）
 1. **盯着回切条件**（D-011 的自动触发器）：第 11 周末三件套若仍为 0，或 R-01 确认的截止日早于预期 —— **材料立刻回到第一优先级，开发停止**。到时候照这一条执行，不要因为做得顺手就继续写代码。**（2026-11-21 注：按当前日期该观察点很可能已过，而三件套仍是 0 —— 先问用户是否立即回切，不要自行继续开发。）**
 2. **向任课老师确认 R-01**（具体日期与提交平台）—— **回切条件依赖它**，越晚确认越被动。
-3. **继续开发（有余力才做）**：D-008 顺延项已交付，剩下加分项——多文档合并、日历导出、多人分工、PDF / 图片 OCR。任何新功能先过 `AGENTS.md` 第 4 节三问：**对应哪一项预赛指标、能加几分、要花多少人日**，答不上来就不做。
-4. **下次 `commit` / `push` 需重新当场授权** —— 本轮的授权（D-010 与用户回复的「提交并推送」）只覆盖本轮范围，**不得沿用**。
-5. **材料三件套 + 团队组建**（R-13 / R-14）按 D-011 后置，**回切条件一触发就立即启动**。
-6. 收尾清理（等用户确认，别擅自删）：`feat/noticehunter-llm` 分支与 `.worktrees/noticehunter-llm` 已合并可删；WorkBuddy 的 worktree 与分支见 R-12。
+3. **用真实 Key 验一轮新 prompt（R-21）**：跑 `prototype/samples/` 三份样例，记录「字段正确条数 / 重复条数 / 回退次数 / 耗时」，写进项目文档测试章节。这是本轮唯一未实测的部分。
+4. **合并 `feat/relative-due`（R-22）**：相对时间推算与本轮改的 `index.html`/`verify-llm.cjs` 必然冲突，必须人工合；合并前先复跑两套验收。**合并/推送需用户当场授权。**
+5. **继续开发（有余力才做）**：加分项——多文档合并、日历导出、多人分工、PDF / 图片 OCR。任何新功能先过 `AGENTS.md` 第 4 节三问：**对应哪一项预赛指标、能加几分、要花多少人日**，答不上来就不做。
+6. **下次 `commit` / `push` 需重新当场授权** —— 本轮已按用户原话「提交到main，然后推送到GitHub」提交并推送（`66c44b2` + 本文件文档提交）；下一次仍需重新确认，**不得沿用**。
+7. **材料三件套 + 团队组建**（R-13 / R-14）按 D-011 后置，**回切条件一触发就立即启动**。
+8. 收尾清理（等用户确认，别擅自删）：`feat/noticehunter-llm` 分支与 `.worktrees/noticehunter-llm` 已合并可删；WorkBuddy 的 worktree 与分支见 R-12。
 
 ### 请求（写在这里等对应文件释放）
 （空）
@@ -266,6 +283,10 @@
 | 2026-11-21 14:25 | 主智能体 | **提交并推送（用户当场授权原话「提交到main，推送到github」）**：`git add prototype/index.html prototype/verify.cjs` → commit **`ce2df66`**（2 files / +178 −33）→ `git push origin main`；本文件随后单独提交并再次推送 | `git ls-remote --heads origin` 确认 `refs/heads/main` = **`ce2df66`**；`git rev-list --left-right --count origin/main...HEAD` = **0 0**；未建分支、未动 tag、未触碰 `.worktrees/` 与 WorkBuddy；未跟踪的 `对话记录/`（非本项目产物）**没有**被提交 |
 | 2026-11-21 16:25 | 主智能体 | **「2 原文 / 3 待确认」横向并排 + 待确认直接内联原文（用户指令：「把2原文和3待确认两块横向并排放置，待确认信息直接在原文中高亮。排版适配电脑屏幕即可」）**：① 新增 `.stage` 网格，≥1080px 为 1.06fr/.94fr 两栏，左栏 `sticky top:14px` + `.raw-panel` 独立滚动（`calc(100vh - 160px)`），<1080px 回单列；② `renderRaw()` 按 `pending` 条目在两栏原文里渲染 `<mark class="mk low|high">`（日期与 `HH:mm` 分段、同段多条目合并区间、低置信度优先），段落加 `data-ids`/`role=button`；③ 卡片删掉 `.quote`/`.card-src`，改为单栏「徽章 + 文件名·第 N 段定位 + 原因 + 四字段 + 确认/丢弃」；④ `jumpTo()` 同时刷原文 `.hl` 与卡片 `.active`，点原文高亮段落反向滚到卡片；⑤ 原文桌面默认展开、窄屏默认折叠，折叠提示给出未显示段落里的待确认条数；⑥ 曾试 `.para-hd` 吸顶，实测与段落重叠，**已回退**。`verify.cjs` 新增 T12 两条（内联高亮 ≥6 处、卡片无 `.quote`）并把 T9 改测 `.stage`；`verify-llm.cjs` 改读 `data-src-idx`/`data-para` 校验 sourceIndex=1。**未 commit / push** | 语法：内联 JS 与两脚本 `node --check` 全过。**实跑：`verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 69 PASS / 0 FAIL = 136 PASS / 0 FAIL**（起 8761 + 8791，跑完停进程；沙箱仍不能写 `prototype/` 子目录，两套验收以 danger-full-access 跑，临时夹具均已清理）。**视觉核对（真实 Edge）**：1440×1000 两栏 593/525px、左栏吸顶 `top=14`、高 840px、42 段中可见 21 段并独立滚动；12 处 `<mark>`（8 黄 / 4 蓝），p14 蓝标 `2026 年 11 月 5 日` + 单独 `17:00`，点卡片后该段 `.hl` 且卡片 `.active`；1000×900 单列、折叠 12 段、提示「另有 9 条待确认在未显示段落中」；控制台零报错。截图：`output/layout-2-3-1440.png` / `layout-2-3-1440-jump.png` / `layout-2-3-1000.png`（`output/` 忽略，不交付）。**未建分支、未动 tag、未触碰 `.worktrees/` 与 WorkBuddy** |
 | 2026-11-21 16:36 | 主智能体 | **提交并推送（用户当场授权原话「提交并推送」）**：`git add prototype/index.html prototype/verify.cjs prototype/verify-llm.cjs` → commit **`7c57439`**（3 files / +216 −92）→ `git push origin main`；本文件随后单独提交并再推送 | `git ls-remote --heads origin` 确认 `refs/heads/main` = **`7c57439`**；`git rev-list --left-right --count origin/main...HEAD` = **0 0**；未建分支、未动 tag、未暂存未跟踪的 `对话记录/`（非本项目产物） |
+| 2026-11-21 17:00 | 主智能体 | **LLM 抽取精度与体验优化（用户直接指令「优化一下LLM方式下的提取功能，现在的精度不高，体验很差」，决策见 D-013）**：① 重写 `llmSystemPrompt()`（今天日期+星期、8 条规则、1 条示例）；② `selectCandidateParagraphs()` 改「候选段 ±2 段 + 首段」窗口，`chunkParagraphs()` 按 60 段 / 12000 字符双上限切批；③ `parseModelContent()` 五级容错（去围栏/括号配对/单对象/截断补齐/逐对象抢救），`[]` 视为合法空结果；④ `mapLLMEntries()` 按 `dueRaw` 原文实际位置校正 `sourceIndex`（宽松匹配全角/空格）、年份校正、`dueRaw` 无据强制 low、同文件去重、本地原因优先；⑤ `llmRequest()` 拆出，超时 15s→30s、HTTP 错误带服务端说明、新增取消（保留已完成批次）与连接测试；⑥ `#aiStatus` 三态状态栏（进行中+取消 / 已回退+重试 / 结果摘要）、`#llmTest`、`#llmDebug` 诊断面板；⑦ 卡片截止时间 placeholder 缩短。`verify-llm.cjs` 新增 T14–T22，`fake-llm-server.js` 支持 `{"raw":"..."}`。**未 commit / push** | 语法：内联脚本与两脚本 `node --check` 全过。**实跑：`verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 84 PASS / 0 FAIL = 151 PASS / 0 FAIL**（起 8761 + 8791；沙箱仍不能写 `prototype/` 子目录，两套以 danger-full-access 跑，夹具已自删）。**首轮曾 79 PASS / 5 FAIL，逐个定位后修**：2 处产品缺陷（连接测试继承了上一次的取消标志 → 在 `testLlmConnection()` 里复位；去重把两批相同 stub 返回合并成 1 条 → 断言改为 `mergedFrom=2`，仍能证伪截断）、2 处测试自身顺序错误（`duePara` 在载入目标文件前计算）、1 处预期变化（同上去重）。**视觉核对（真实 Edge 1440×1100）**：状态栏「AI 抽取完成：…校正出处 1 条；出处待核 2 条」、进度条 spinner+「取消」、连接测试「连接成功（3 ms）」、诊断面板含端点/模型/HTTP/耗时/finish_reason/原始返回前 300 字，控制台零报错；截图 `C:\Users\ASUS\AppData\Local\Temp\nh-llm-{review,progress,settings}.png`（临时目录，不交付）。**未建分支、未动 tag、未触碰 `.worktrees/` 与 WorkBuddy** |
+| 2026-11-21 17:10 | 主智能体 | **文档与 Prompt 留档收口**：`docs/compose/spec/noticehunter-llm.md` 新增 **S2.12**（失败模式→改法表、推翻的四处旧条文、已知边界、T14–T22 验收口径）并更新 front-matter；新建 `prompts/P-003-LLM抽取精度优化.md`（新 prompt 原文 + 8 个失败模式 + 人工核查，如实写明「未在真实 API 上验收」）；`README.md` 的「如何复现验收结果」从 99 条更新为 **151 条**（67 + 84）并补新覆盖面；本文件第 1/3/4/5/6/7 节更新（新增 D-013、R-21、R-22，释放占用） | 回读确认：spec 内 T14–T22 与 `verify-llm.cjs` 实际断言一一对应；**P-003 的 prompt 原文与页面 `llmSystemPrompt()` 逐字核对通过**（`PROMPT_MATCH true`，1363 字符；首次核对发现星期写成「周五」，实际 2026-11-21 是周六，已改正）；HANDOFF 第 1 节引用的 151 PASS 与第 6 节上一条实测一致。**未提交、未推送、未建分支** |
+| 2026-11-21 17:55 | 主智能体 | **收尾补一处并发守卫**：`#llmTest`（连接测试）在 `state.busy`（多文件载入 / 重试整批）期间也禁用，`testLlmConnection()` 里同样拒绝在抽取在途时启动——否则在文件间空隙点它会造成两次请求并发，破坏 S2.6 的单飞约定 | 内联脚本 `node --check` 通过；**两套验收复跑 `verify.cjs` 67 PASS / 0 FAIL + `verify-llm.cjs` 84 PASS / 0 FAIL = 151 PASS / 0 FAIL**。**未提交、未推送** |
+| 2026-11-21 18:35 | 主智能体 | **提交并推送（用户当场授权原话「停吧。然后提交到main，然后推送到GitHub」）**：先停掉 8761 静态服务器与 8791 stub 两个后台 job；`git add` 6 个改动文件 + 新建 `prompts/P-003` → commit **`66c44b2`**（6 files / +1080 −136）→ `git push origin main`；本文件随后单独提交并推送。**未跟踪的 `对话记录/`（非本项目产物）没有提交** | `git ls-remote --heads origin` 确认 `refs/heads/main` = **`66c44b2`**；`git rev-list --left-right --count origin/main...HEAD` = **0 0**；提交只含预期 6 个文件，无 `对话记录/`。**未建分支、未动 tag、未触碰 `.worktrees/` 与 WorkBuddy** |
 
 ---
 
@@ -377,3 +398,15 @@
 
 1. **不要 pip 安装依赖** —— 需要什么能力，先看 `AGENTS.md` 第 9 节有没有现成的。
 2. **`prototype/` 的浏览器代码不得依赖任何本机 Python 库或 npm 产物** —— 必须在浏览器里零依赖实现。这条与「本机有 python-docx」并不冲突：Python 库是给**文档 / PPT 产出**用的，不是给产品运行时用的。
+
+### R-21（2026-11-21 追加）· 新 prompt 未在真实模型上验收，属设计推断
+
+- **现状**：本轮重写 system prompt（日期锚点、出处契约、跨段规则、示例）是精度提升的主要手段，但**没有在任何真实第三方 API 上跑过**——本机无可用 Key，也不擅自调用他人 Key。自动化验收用的是本地 stub，只能证明「模型输出不听话时客户端不再整文件回退」，不能证明「真实模型更听话了」。
+- **影响**：如果真实模型仍给错年份 / 仍把截止行当动作，界面会比以前**更诚实**（标 low + 原因），但**不会更准**。答辩时若被问「你验证过 prompt 效果吗」，只能回答「未在真实 API 上验证」——这是 12.5% 如实记录项的一部分，不能含糊。
+- **建议动作**：拿到 Key 后跑 `prototype/samples/` 三份样例，记录「字段正确条数 / 重复条数 / 回退次数 / 耗时」，写进项目文档测试章节；诊断面板（`#llmDebug`）就是为此准备的。
+
+### R-22（2026-11-21 追加）· `feat/relative-due` 的合并冲突面扩大
+
+- **现状**：`feat/relative-due` 分支（未合并、未 commit）改的是 `prototype/index.html`、`prototype/verify.cjs`、`prototype/verify-llm.cjs`；本轮又改了 `index.html` 与 `verify-llm.cjs`，且重构了 `selectCandidateParagraphs` / `mapLLMEntries` / `callLLM` / `extractSource` 四个函数——分支与主干的差异从「局部改」变成「同一批函数两侧各改一遍」。
+- **影响**：直接 `git merge` 几乎必然冲突，且**冲突处不是格式冲突，是语义冲突**（两边都动了候选筛选与 due 补正）。机械地选一边会静默丢掉其中一方的功能。
+- **建议动作**：合并时人工重放 relative-due 的意图（`state.anchorDate` + `resolveRelativeDue` + 「按锚点」标记），而不是逐块 resolve；合并后**先复跑两套验收（本轮基线 151 PASS）**，再决定是否需要补断言。
