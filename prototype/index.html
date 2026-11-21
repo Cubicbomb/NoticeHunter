@@ -1283,14 +1283,17 @@ function ruleExtractItems(name, paragraphs, srcIdx) {
    AI 是主抽取器；规则只补「AI 没有产出有效条目的段落」，绝不改写 AI 结果。
    补漏一律强制 low + 明确原因；AI 返回 [] 时不补——那是「整篇没有待办」的有效判断，
    再跑规则就是凭空造条目（S2.12 / T17 已修过的 bug）。
-   也不是所有带日期的段落都值得补：发布日期、落款日期没有交件动词、地点或责任人，
-   补进来只会制造噪声，所以要求原文出现交件动词，或至少有地点 / 责任人。 */
+
+   是否补某一段，由规则抽取器自己的判断决定：extractFromParagraph() 只要命中日期就会
+   产出条目，所以发布日期、落款日期（如通知末尾单独一行的「2026 年 10 月 13 日」）同样
+   会进来。2026-11-21 曾用「必须有交件动词或地点或责任人」过滤噪声，但那会连
+   「材料一律交至教务办」+ 下一行日期这种真实的两段式通知一起漏掉——宁可多给一张
+   待确认卡片，也不静默丢召回。噪声由 low 置信度 + 原因 + 人工确认兜住。 */
 function ruleSupplementItems(src, srcIdx, aiItems) {
   const covered = new Set(aiItems.map((it) => it.sourceIndex));
   const out = [];
   for (const it of ruleExtractItems(src.name, src.paragraphs, srcIdx)) {
     if (covered.has(it.sourceIndex)) continue;
-    if (!RE_VERB.test(it.sourceText) && !it.where && !it.owner) continue;
     it.confidence = 'low';
     it.supplement = true;
     it.reasons = ['AI 未从本段抽取，由规则补充，请核对'].concat(it.reasons).slice(0, 4);

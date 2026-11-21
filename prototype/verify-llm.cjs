@@ -289,14 +289,16 @@ async function walkConfirmExport(page, label) {
   fs.writeFileSync(ONEFILE, '请于 2027 年 10 月 1 日前将材料交至测试地点。\n', 'utf8');
   fs.writeFileSync(SUPPFILE,
     '请于 2026 年 11 月 5 日 17:00 前，将《鉴定表》交至学院办公室。\n'
-    + '请于 2026 年 11 月 6 日 17:00 前，将《实习日志》交至教务办。\n', 'utf8');
+    + '请于 2026 年 11 月 6 日 17:00 前，将《实习日志》交至教务办。\n'
+    + '2026 年 10 月 13 日\n', 'utf8');
 
   /* T14：前言 + markdown 围栏 —— 真实模型最常见的两种「不听话」 */
   await setRaw('好的，以下是抽取结果：\n```json\n[{"action":"带前言的条目","owner":null,"where":null,'
     + '"dueRaw":"2026 年 11 月 5 日","due":"2026-11-05","sourceIndex":14,'
     + '"confidence":"high","reasons":[]}]\n```\n共 1 条。');
   await loadFresh(page, INTERN);
-  const t14 = await lastItems(page);
+  /* S2.13 起补漏会追加规则条目，这些「解析是否成功」类断言只看 AI 条目 */
+  const t14 = (await lastItems(page)).filter((x) => x.extractor === 'ai');
   check('T14 模型带前言/围栏时仍能解析出条目',
     t14.length === 1 && t14[0].action === '带前言的条目', JSON.stringify(t14.map((x) => x.action)));
   check('T14 未因内容解析失败而回退',
@@ -307,7 +309,7 @@ async function walkConfirmExport(page, label) {
     + '"due":"2026-11-05","sourceIndex":14,"confidence":"high","reasons":[]}');
   await page.click('#llmRetry');
   await page.waitForTimeout(2500);
-  const t15 = await lastItems(page);
+  const t15 = (await lastItems(page)).filter((x) => x.extractor === 'ai');
   check('T15 模型返回单个对象时自动包装为数组',
     t15.length === 1 && t15[0].action === '单对象条目', JSON.stringify(t15.map((x) => x.action)));
 
@@ -319,7 +321,7 @@ async function walkConfirmExport(page, label) {
     + '{"action":"被截断的一');
   await page.click('#llmRetry');
   await page.waitForTimeout(2500);
-  const t16 = await lastItems(page);
+  const t16 = (await lastItems(page)).filter((x) => x.extractor === 'ai');
   check('T16 输出被截断时抢救出已完整的条目（未整文件回退）',
     t16.length === 2 && t16.some((x) => x.action === '截断保留 A')
       && t16.some((x) => x.action === '截断保留 B'),
@@ -359,9 +361,12 @@ async function walkConfirmExport(page, label) {
     !!locItem && locItem.idx === duePara
       && locItem.reasons.join('').indexOf('校正为第 ' + duePara + ' 段') >= 0,
     JSON.stringify(locItem) + ' | 应在第 ' + duePara + ' 段');
-  const cardAtDue = await page.locator('#reviewList .card[data-para="' + duePara + '"]').count();
+  /* 只看 AI 条目：补漏卡片会落在其它段落，与本断言无关 */
+  const cardAtDue = await page.locator('#reviewList .card[data-para="' + duePara + '"]', { hasText: 'AI' }).count();
+  const aiAtDue = t18.filter((x) => x.extractor === 'ai').length;
   check('T19 校正后的卡片都指向原文里真正含截止时间的那一段',
-    cardAtDue === t18.length, 'cards@' + duePara + '=' + cardAtDue + ' items=' + t18.length);
+    cardAtDue === aiAtDue, 'cards@' + duePara + '=' + cardAtDue + ' aiItems=' + aiAtDue
+      + ' all=' + t18.length);
 
   /* T20：同文件内重复条目只保留一条 */
   await setRaw('[{"action":"重复条目","owner":"甲","where":"乙","dueRaw":"2026 年 11 月 5 日",'
@@ -409,16 +414,17 @@ async function walkConfirmExport(page, label) {
   await ctl({ mode: 'ok' });
 
   /* ==================== 2026-11-21 · AI + 规则条目级补漏（T23–T25） ==================== */
-  /* T23：AI 只覆盖第 1 段，第 2 段由规则补；AI 条目不被改写 */
+  /* T23：AI 只覆盖第 1 段，第 2 段由规则补；第 3 段（落款日期，无交件动词/地点/责任人）
+     也必须补——用户实测反馈「末尾的 2026 年 10 月 13 日没有被抽出」（2026-11-21） */
   await setRaw('[{"action":"提交《鉴定表》","owner":null,"where":"学院办公室",'
     + '"dueRaw":"2026 年 11 月 5 日 17:00 前","due":"2026-11-05 17:00","sourceIndex":1,'
     + '"confidence":"high","reasons":[]}]');
   await loadFresh(page, SUPPFILE);
   const t23 = await lastItems(page);
   const ai23 = t23.find((x) => x.extractor === 'ai');
-  const sup23 = t23.find((x) => x.supplement);
-  check('T23 AI 漏掉的第 2 段由规则补漏（共 2 条）',
-    t23.length === 2 && !!ai23 && !!sup23 && sup23.idx === 2,
+  const sup23 = t23.find((x) => x.supplement && x.idx === 2);
+  check('T23 AI 漏掉的第 2 段由规则补漏（共 3 条）',
+    t23.length === 3 && !!ai23 && !!sup23 && sup23.idx === 2,
     JSON.stringify(t23.map((x) => ({ e: x.extractor, s: x.supplement, i: x.idx }))));
   check('T23 补漏条目强制 low 并写明「规则补充」原因',
     !!sup23 && sup23.confidence === 'low'
@@ -431,7 +437,14 @@ async function walkConfirmExport(page, label) {
   check('T23 补漏卡片标注「规则补充」', supCardText.indexOf('规则补充') >= 0,
     supCardText.replace(/\s+/g, ' ').slice(0, 120));
   const sum23 = (await page.locator('#aiStatus').innerText()).trim();
-  check('T23 状态栏摘要说明规则补漏条数', /规则补漏 1 条/.test(sum23), sum23);
+  check('T23 状态栏摘要说明规则补漏条数', /规则补漏 2 条/.test(sum23), sum23);
+
+  /* T27：只有日期、没有交件动词/地点/责任人的落款段也必须补，不许静默丢召回 */
+  const closing23 = t23.find((x) => x.supplement && x.idx === 3);
+  check('T27 末尾落款日期段也被规则补漏（不再被噪声过滤静默跳过）',
+    !!closing23 && closing23.confidence === 'low'
+      && closing23.reasons.join('').indexOf('规则补充') >= 0,
+    JSON.stringify(t23.map((x) => ({ e: x.extractor, s: x.supplement, i: x.idx }))));
 
   /* T26：规则补充卡片必须与 AI 卡片有视觉分层（灰调），不能只靠一枚徽章 */
   const supCard = page.locator('#reviewList .card[data-para="2"]');
@@ -454,15 +467,17 @@ async function walkConfirmExport(page, label) {
   await page.click('#llmRetry');
   await page.waitForTimeout(2500);
   const t24 = await lastItems(page);
-  check('T24 AI 已覆盖全部段落时不重复补漏',
-    t24.length === 2 && t24.every((x) => x.extractor === 'ai' && !x.supplement),
+  check('T24 AI 已覆盖的段落不被重复补漏（只剩第 3 段落款补 1 条）',
+    t24.filter((x) => x.extractor === 'ai' && !x.supplement).length === 2
+      && t24.filter((x) => x.supplement).length === 1
+      && t24.filter((x) => x.supplement).every((x) => x.idx === 3),
     JSON.stringify(t24.map((x) => ({ e: x.extractor, s: x.supplement, i: x.idx }))));
 
   /* T25：AI 返回 [] 时仍然不补漏（保持 S2.12 / T17 的「空结果是有效判断」） */
   await setRaw('[]');
   await loadFresh(page, SUPPFILE);
   const t25 = await lastItems(page);
-  check('T25 AI 返回空结果时不补漏（规则式本可产出 2 条）',
+  check('T25 AI 返回空结果时不补漏（规则式本可产出 3 条）',
     t25.length === 0, 'items=' + t25.length + ' | ' + JSON.stringify(t25.map((x) => x.extractor)));
 
   /* ===== T4 · 无候选段落不发请求（验收措辞已于 spec 中修订为可证伪四条）===== */
