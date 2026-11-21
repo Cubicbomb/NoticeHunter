@@ -111,6 +111,12 @@ function check(name, cond, detail) {
   check('S2.5 无「前/之前/截止」标记的日期被标记低置信度', !!noMarker,
     noMarker ? noMarker.reasons.join(' / ') : 'none');
 
+  /* ===== 2026-11-21 · 待确认信息直接内联到原文（用户指令）===== */
+  const inlineMarks = await page.locator('#rawList .para.pend mark.mk').count();
+  check('T12 待确认条目已在第 2 节原文中内联高亮', inlineMarks >= 6, 'marks=' + inlineMarks);
+  check('T12 待确认卡片不再重复原文（无 .quote）',
+    (await page.locator('#reviewList .quote').count()) === 0);
+
   /* ===== T8 出处跳转 ===== */
   await page.locator('#reviewList button[data-act="src"]').first().click();
   await page.waitForTimeout(120);
@@ -484,17 +490,17 @@ function check(name, cond, detail) {
     }
   }
 
-  /* --- T9 · 分屏布局（宽屏两列 / 窄屏单列） --- */
+  /* --- T9 · 「原文」与「待确认」桌面端并排（2026-11-21 布局改版） --- */
   await page.setViewportSize({ width: 1200, height: 900 });
   await page.waitForTimeout(80);
   const wideCols = await page.evaluate(() =>
-    getComputedStyle(document.querySelector('.split')).gridTemplateColumns.trim().split(/\s+/).length);
-  check('T9 宽屏（≥1080px）待确认与清单分屏为两列', wideCols >= 2, 'cols=' + wideCols);
+    getComputedStyle(document.querySelector('.stage')).gridTemplateColumns.trim().split(/\s+/).length);
+  check('T9 宽屏（≥1080px）「原文」与「待确认」并排为两列', wideCols >= 2, 'cols=' + wideCols);
 
   await page.setViewportSize({ width: 1000, height: 900 });
   await page.waitForTimeout(80);
   const narrowCols = await page.evaluate(() =>
-    getComputedStyle(document.querySelector('.split')).gridTemplateColumns.trim().split(/\s+/).length);
+    getComputedStyle(document.querySelector('.stage')).gridTemplateColumns.trim().split(/\s+/).length);
   check('T9 窄屏（<1080px）回到单列纵向排布', narrowCols === 1, 'cols=' + narrowCols);
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.waitForTimeout(80);

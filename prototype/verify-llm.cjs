@@ -57,7 +57,8 @@ const toastOf = async (page) => (await page.locator('#toast').innerText()).trim(
 const readCards = (page) => page.$$eval('#reviewList .card', (els) => els.map((el) => ({
   action: ((el.querySelector('input[data-field="action"]')) || {}).value || '',
   badges: Array.from(el.querySelectorAll('.badge')).map((b) => b.textContent.trim()).join('|'),
-  quote: ((el.querySelector('.quote')) || {}).textContent || ''
+  srcIdx: Number(el.getAttribute('data-src-idx')),
+  para: Number(el.getAttribute('data-para'))
 })));
 
 /* T7：每种故障回退后都要完整走通「确认 → 清单 → 导出」（spec 三种故障各跑一遍） */
@@ -149,9 +150,12 @@ async function walkConfirmExport(page, label) {
   const aiCards = cards.filter((c) => c.badges.indexOf('AI') >= 0).length;
   check('T3 卡片标注来源为 AI', allCards > 0 && aiCards === allCards,
     'aiCards=' + aiCards + '/' + allCards);
+  const firstRaw = await page.locator('#rawList .para[data-s="0"][data-p="1"]').count()
+    ? await page.locator('#rawList .para[data-s="0"][data-p="1"]').innerText() : '';
   check('T3 sourceIndex=1 正确映射到原文首段',
-    allCards > 0 && cards[0].quote.indexOf('关于做好 2026 届毕业实习材料提交工作的通知') === 0,
-    cards[0] ? cards[0].quote.slice(0, 60) : 'none');
+    allCards > 0 && cards[0].srcIdx === 0 && cards[0].para === 1
+      && firstRaw.indexOf('关于做好 2026 届毕业实习材料提交工作的通知') >= 0,
+    cards[0] ? ('srcIdx=' + cards[0].srcIdx + ' para=' + cards[0].para + ' raw=' + firstRaw.slice(0, 40)) : 'none');
   check('T3 徽章保持 AI 抽取（未回退）',
     (await badge(page)) === 'AI 抽取', await badge(page));
 

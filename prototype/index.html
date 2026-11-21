@@ -88,11 +88,24 @@
   #llmSettings summary:hover { color: var(--accent); }
   #llmSettings[open] summary { color: var(--accent); font-weight: 600; }
 
-  /* 原文区 */
-  /* 折叠态已按「每份只渲染 6 段」限住了高度；若再套一层 300px 内滚动条，
-     多份样例时第二份就只剩一个空标题，看起来像「没加载出来」——改为由页面滚动。 */
+  /* 原文区 · 2026-11-21：与「待确认」并排后，桌面端左栏吸顶并独立滚动 */
   #rawList { max-height: none; overflow: visible; }
   #rawToggleRow { margin: 0 0 8px; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 4px 16px;
+    font-size: 12px; color: var(--muted); margin: 0 0 8px;
+  }
+  .legend .sw {
+    display: inline-block; width: 20px; height: 11px; border-radius: 3px;
+    margin-right: 5px; vertical-align: -1px;
+  }
+  .legend .sw.low { background: #fde68a; box-shadow: inset 0 0 0 1px #fbbf24; }
+  .legend .sw.high { background: #dbeafe; box-shadow: inset 0 0 0 1px #93c5fd; }
+  /* 左栏是独立滚动容器：细滚动条常显，提示「下面还有内容」 */
+  .raw-panel { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+  .raw-panel::-webkit-scrollbar { width: 10px; }
+  .raw-panel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; border: 2px solid #fff; }
+  .raw-panel::-webkit-scrollbar-track { background: transparent; }
   .para {
     padding: 7px 10px; border-left: 3px solid transparent; border-radius: 0 6px 6px 0;
     color: #374151; font-size: 13.5px;
@@ -101,47 +114,40 @@
     color: #9ca3af; font-size: 11.5px; font-variant-numeric: tabular-nums;
     margin-right: 8px; user-select: none;
   }
-  .para.hl { background: #fff7d6; border-left-color: var(--warn-line); }
+  .para.pend { background: #fbfcff; }
+  .para.pend[role="button"] { cursor: pointer; }
+  .para.pend[role="button"]:hover { background: #eff5ff; }
+  /* 跳转定位：整段淡蓝底 + 左侧蓝条，与「待确认」的黄/蓝 <mark> 区分开 */
+  .para.hl {
+    background: #eef4ff; border-left-color: var(--accent);
+    box-shadow: inset 0 0 0 1.5px #93c5fd;
+  }
+  .para mark.mk { padding: 0 2px; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  .para mark.mk.low { background: #fde68a; color: #78350f; box-shadow: inset 0 0 0 1px #fbbf24; }
+  .para mark.mk.high { background: #dbeafe; color: #1e3a8a; box-shadow: inset 0 0 0 1px #93c5fd; }
   .para-hd {
     font-size: 12px; color: var(--muted); margin: 10px 0 4px;
     padding: 4px 10px; background: #f3f4f6; border-radius: 6px; font-weight: 600;
   }
 
-  /* 待确认卡片：左「原文 + 抽取位置高亮」，右「字段与确认操作」—— 2026-11-21 */
+  /* 待确认卡片：原文已在左栏内联高亮，卡片不再重复原文，只保留字段与确认操作 —— 2026-11-21 */
   .card {
-    display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
-    gap: 0 16px;
-    background: #fff; border: 1px solid var(--line); border-radius: 10px;
-    padding: 14px 16px; margin-bottom: 12px;
+    background: #fff; border: 1px solid var(--line); border-left: 3px solid #bfdbfe;
+    border-radius: 10px; padding: 13px 15px; margin-bottom: 12px;
   }
-  .card.low { background: #fffdf5; border-color: #fcd34d; }
-  .card-src {
-    min-width: 0; display: flex; flex-direction: column;
-    padding-right: 16px; border-right: 1px dashed var(--line);
-  }
-  .card-main { min-width: 0; }
-  .card-src-head { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
-  .card-src .quote { flex: 1; margin-bottom: 0; max-height: 260px; overflow: auto; }
-  .quote mark {
-    background: #fde68a; color: #78350f; padding: 0 2px; border-radius: 3px;
-    box-decoration-break: clone; -webkit-box-decoration-break: clone;
-  }
-  @media (max-width: 720px) {
-    .card { grid-template-columns: 1fr; }
-    .card-src { padding: 0 0 10px; margin-bottom: 10px; border-right: none; border-bottom: 1px dashed var(--line); }
-    .card-src .quote { max-height: none; }
-  }
+  .card.low { background: #fffdf5; border-color: #fcd34d; border-left-color: var(--warn-line); }
+  .card.active { border-color: var(--accent); border-left-color: var(--accent); box-shadow: 0 0 0 3px #dbeafe; }
   .card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-  .card-head .src { font-size: 12px; color: var(--muted); }
+  .card-head .loc {
+    margin-left: auto; border: none; background: none; color: var(--accent);
+    font: inherit; font-size: 12px; padding: 2px 4px; cursor: pointer;
+    max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .card-head .loc:hover { text-decoration: underline; }
   .reasons { margin-bottom: 10px; }
   .reasons .chip {
     display: inline-block; font-size: 12px; background: var(--warn-bg); color: var(--warn-ink);
     border: 1px solid #fcd34d; border-radius: 6px; padding: 1px 7px; margin: 0 4px 4px 0;
-  }
-  .quote {
-    font-size: 12.5px; color: var(--muted); background: #f8fafc;
-    border-left: 3px solid var(--line); padding: 6px 10px; margin-bottom: 10px; border-radius: 0 6px 6px 0;
   }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 14px; }
   .fields label { font-size: 12px; color: var(--muted); display: block; }
@@ -197,11 +203,16 @@
   .fbtn { padding: 5px 10px; font-size: 12.5px; border-radius: 7px; }
   .fbtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-  /* ===== D-008 · 分屏：宽屏时「待确认」与「行动清单」并排，减少来回滚动 ===== */
-  .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 24px; }
+  /* ===== 2026-11-21 · 「2 原文」与「3 待确认」桌面端左右并排 =====
+     左栏吸顶 + 独立滚动：右侧条目再多，原文与高亮也一直留在屏幕里；
+     窄屏（<1080px）自动回到单列，左栏取消限高，由页面滚动。 */
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px 22px; align-items: start; }
+  .raw-col, .review-col { min-width: 0; }
   @media (min-width: 1080px) {
     .wrap { max-width: 1180px; }
-    .split { grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); align-items: start; }
+    .stage { grid-template-columns: minmax(0, 1.06fr) minmax(0, .94fr); }
+    .raw-col { position: sticky; top: 14px; }
+    .raw-panel { max-height: calc(100vh - 160px); overflow: auto; overscroll-behavior: contain; }
   }
 
   /* ===== D-008 · 按截止日汇总 ===== */
@@ -289,17 +300,22 @@
     </details>
   </section>
 
-  <section>
+  <div class="stage">
+  <section class="raw-col">
     <h2><span class="n">2</span>原文</h2>
+    <div class="legend">
+      <span><i class="sw low"></i>低置信度待确认</span>
+      <span><i class="sw high"></i>高置信度待确认</span>
+      <span>点高亮段落，定位对应条目</span>
+    </div>
     <div class="row" id="rawToggleRow" hidden>
       <button id="rawToggle" class="ghost">展开全部原文</button>
       <span class="hint" id="rawToggleHint"></span>
     </div>
-    <div class="panel"><div id="rawList"><p class="empty">还没有载入内容。先拖入一份通知，或点「用样例演示」。</p></div></div>
+    <div class="panel raw-panel"><div id="rawList"><p class="empty">还没有载入内容。先拖入一份通知，或点「用样例演示」。</p></div></div>
   </section>
 
-  <div class="split">
-  <section>
+  <section class="review-col">
     <h2><span class="n">3</span>待确认</h2>
     <div class="review-bar">
       <span id="reviewCount" class="rcount">待确认 0 条 · 低置信度 0 条</span>
@@ -310,8 +326,9 @@
         <button id="undoDiscard" class="ghost" disabled>撤销上次丢弃</button>
       </div>
     </div>
-    <div id="reviewList"><p class="empty">抽取结果会出现在这里。<strong>低置信度的条目会标黄</strong>，必须人工确认后才会进入行动清单。</p></div>
+    <div id="reviewList"><p class="empty">抽取结果会出现在这里，并已在左侧原文中高亮。<strong>低置信度的条目会标黄</strong>，必须人工确认后才会进入行动清单。</p></div>
   </section>
+  </div>
 
   <section>
     <h2><span class="n">4</span>行动清单</h2>
@@ -323,7 +340,6 @@
       <button id="copy">复制到剪贴板</button>
     </div>
   </section>
-  </div>
 
   <section>
     <h2><span class="n">5</span>按截止日汇总</h2>
@@ -438,7 +454,7 @@ const state = {
   sessionId: 0,          // 清空会话时自增，用于丢弃在途请求的过期结果
   reviewFilter: 'all',   // 待确认区筛选：all / low / high —— D-008
   lastDiscard: null,     // 最近一次丢弃的条目 id，供「撤销上次丢弃」用 —— D-008
-  rawExpanded: false,    // 原文区是否展开全文 —— D-008
+  rawExpanded: window.matchMedia('(min-width: 1080px)').matches, // 桌面默认展开；窄屏默认折叠，免得 42 段把「待确认」推到很远
   llmRequests: loadBudget(), // 会话累计已发出的请求数（含失败），S2.11 预算；刷新保留
   llmLastRequestAt: 0    // 上一次请求发出时刻，S2.11 最小间隔
 };
@@ -1112,6 +1128,18 @@ function renderSources() {
   ).join('');
 }
 
+/* 待确认条目按「来源 : 段落」归并，供原文内联高亮与点击定位使用 */
+function pendingByPara() {
+  const map = new Map();
+  for (const it of state.items) {
+    if (it.status !== 'pending') continue;
+    const key = it.srcIdx + ':' + it.sourceIndex;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(it);
+  }
+  return map;
+}
+
 function renderRaw() {
   if (!state.sources.length) {
     elRaw.innerHTML = '<p class="empty">还没有载入内容。先拖入一份通知，或点「用样例演示」。</p>';
@@ -1126,16 +1154,28 @@ function renderRaw() {
     if (hlSrc && state.highlight.paraIdx > RAW_PREVIEW_COUNT) state.rawExpanded = true;
   }
   const showAll = state.rawExpanded;
+  const pendMap = pendingByPara();
+  const pendTotal = state.items.filter((it) => it.status === 'pending').length;
 
-  let html = '', total = 0;
+  let html = '', total = 0, hiddenPend = 0;
   state.sources.forEach((src, si) => {
     total += src.paragraphs.length;
     html += '<div class="para-hd">' + esc(src.name) + '</div>';
     src.paragraphs.forEach((p, pi) => {
-      if (!showAll && pi >= RAW_PREVIEW_COUNT) return;
+      const pend = pendMap.get(si + ':' + (pi + 1)) || [];
+      if (!showAll && pi >= RAW_PREVIEW_COUNT) {
+        hiddenPend += pend.length;
+        return;
+      }
       const isHl = state.highlight && state.highlight.srcIdx === si && state.highlight.paraIdx === pi + 1;
-      html += '<div class="para' + (isHl ? ' hl' : '') + '" data-s="' + si + '" data-p="' + (pi + 1) + '">'
-            + '<span class="pno">' + (pi + 1) + '</span>' + esc(p) + '</div>';
+      /* 有 pending 条目的段落直接在原文里高亮：这是「待确认信息」的主展示位，卡片不再重复原文 */
+      const cls = 'para' + (pend.length ? ' pend' : '') + (isHl ? ' hl' : '');
+      const attrs = pend.length
+        ? ' role="button" tabindex="0" data-ids="' + esc(pend.map((x) => x.id).join(',')) + '"'
+          + ' title="点击定位对应条目"'
+        : '';
+      html += '<div class="' + cls + '" data-s="' + si + '" data-p="' + (pi + 1) + '"' + attrs + '>'
+            + '<span class="pno">' + (pi + 1) + '</span>' + renderParaText(p, pend) + '</div>';
     });
   });
   elRaw.innerHTML = html;
@@ -1149,7 +1189,9 @@ function renderRaw() {
       if (elRawToggleHint) {
         elRawToggleHint.textContent = showAll
           ? '已展开，正在显示全部 ' + total + ' 段'
-          : '当前每份只显示前 ' + RAW_PREVIEW_COUNT + ' 段（共 ' + total + ' 段，已显示 ' + shown + ' 段）';
+            + (pendTotal ? '，其中 ' + pendTotal + ' 条待确认已高亮' : '')
+          : '当前每份只显示前 ' + RAW_PREVIEW_COUNT + ' 段（共 ' + total + ' 段，已显示 ' + shown + ' 段）'
+            + (hiddenPend ? '，另有 ' + hiddenPend + ' 条待确认在未显示段落中' : '');
       }
     }
   }
@@ -1160,10 +1202,11 @@ function filterLabel() {
        : state.reviewFilter === 'high' ? '高置信度' : '全部';
 }
 
-/* 左栏原文里标出「被抽取的时间位置」；定位不到就原样输出，绝不猜一个位置 */
-function sourceHighlight(text, it) {
+/* 把「被抽取到的时间位置」换算成原文里的下标区间；定位不到就返回空数组，绝不猜一个位置 */
+function dueRanges(text, it) {
   const src = String(text == null ? '' : text);
   const raw = String(it.dueRaw || '').trim();
+  const spans = [];
   let start = -1, len = 0;
   if (raw) {
     let hit = raw;
@@ -1179,12 +1222,11 @@ function sourceHighlight(text, it) {
     const info = detectDue(src);
     if (info) { start = info.idx; len = (info.end || 0) - info.idx; }
   }
-  if (start < 0 || len <= 0) return esc(src);
-
-  let cut = start + len;   /* 已被第一段高亮吃掉的末尾 */
-  let out = esc(src.slice(0, start)) + '<mark>' + esc(src.slice(start, cut)) + '</mark>';
+  if (start < 0 || len <= 0) return spans;
+  spans.push([start, start + len]);
 
   /* 截止时间里的 HH:mm 也标出来（与日期之间隔着「（周四）」这类文字时，两段分开标） */
+  const cut = start + len;
   const dueText = String(it.due || '');
   if (/\d{2}:\d{2}$/.test(dueText) && src.slice(start, cut).indexOf(':') < 0) {
     let win = src.slice(cut, cut + 40);
@@ -1192,12 +1234,40 @@ function sourceHighlight(text, it) {
     if (stop >= 0) win = win.slice(0, stop);
     const tm = /(\d{1,2}):(\d{2})/.exec(win);
     if (tm) {
-      const ts = cut + tm.index, te = ts + tm[0].length;
-      out += esc(src.slice(cut, ts)) + '<mark>' + esc(src.slice(ts, te)) + '</mark>';
-      cut = te;
+      const ts = cut + tm.index;
+      spans.push([ts, ts + tm[0].length]);
     }
   }
-  return out + esc(src.slice(cut));
+  return spans;
+}
+
+/* 同一段可能挂多条待确认：区间合并后再输出，低置信度（黄）优先 */
+function renderParaText(text, items) {
+  const spans = [];
+  for (const it of items) {
+    for (const sp of dueRanges(text, it)) {
+      spans.push({ s: sp[0], e: sp[1], low: it.confidence === 'low' });
+    }
+  }
+  if (!spans.length) return esc(text);
+  spans.sort((a, b) => a.s - b.s || b.e - a.e);
+  const merged = [];
+  for (const sp of spans) {
+    const last = merged[merged.length - 1];
+    if (last && sp.s <= last.e) {
+      last.e = Math.max(last.e, sp.e);
+      last.low = last.low || sp.low;
+    } else {
+      merged.push({ s: sp.s, e: sp.e, low: sp.low });
+    }
+  }
+  let out = '', at = 0;
+  for (const r of merged) {
+    out += esc(text.slice(at, r.s))
+        + '<mark class="mk ' + (r.low ? 'low' : 'high') + '">' + esc(text.slice(r.s, r.e)) + '</mark>';
+    at = r.e;
+  }
+  return out + esc(text.slice(at));
 }
 
 function renderReview() {
@@ -1234,28 +1304,27 @@ function renderReview() {
 
   elReview.innerHTML = shown.map((it) => {
     const low = isLow(it);
-    return '<article class="card' + (low ? ' low' : '') + '">'
-      + '<div class="card-src">'
-      +   '<div class="card-src-head">原文 · ' + esc(it.sourceName) + ' 第 ' + it.sourceIndex + ' 段</div>'
-      +   '<div class="quote">' + sourceHighlight(it.sourceText, it) + '</div>'
+    const active = state.highlight
+      && state.highlight.srcIdx === it.srcIdx
+      && state.highlight.paraIdx === it.sourceIndex;
+    return '<article class="card' + (low ? ' low' : '') + (active ? ' active' : '') + '"'
+      + ' data-src-idx="' + it.srcIdx + '" data-para="' + it.sourceIndex + '">'
+      + '<div class="card-head">'
+      +   '<span class="badge' + (low ? ' warn' : '') + '">' + (low ? '低置信度' : '高置信度') + '</span>'
+      +   '<span class="badge mute">' + (it.extractor === 'ai' ? 'AI' : '规则式') + '</span>'
+      +   '<button class="loc" data-act="src" data-id="' + it.id + '" title="在左侧原文中定位并高亮">'
+      +     esc(it.sourceName) + ' · 第 ' + it.sourceIndex + ' 段 ↗</button>'
       + '</div>'
-      + '<div class="card-main">'
-      +   '<div class="card-head">'
-      +     '<span class="badge' + (low ? ' warn' : '') + '">' + (low ? '低置信度' : '高置信度') + '</span>'
-      +     '<span class="badge mute">' + (it.extractor === 'ai' ? 'AI' : '规则式') + '</span>'
-      +   '</div>'
-      +   (it.reasons.length ? '<div class="reasons">' + it.reasons.map((r) => '<span class="chip">' + esc(r) + '</span>').join('') + '</div>' : '')
-      +   '<div class="fields">'
-      +   '<label>交什么 / 做什么<input data-id="' + it.id + '" data-field="action" value="' + esc(it.action) + '"></label>'
-      +   '<label>谁<input data-id="' + it.id + '" data-field="owner" value="' + esc(it.owner || '') + '" placeholder="待分配"></label>'
-      +   '<label>截止时间<input data-id="' + it.id + '" data-field="due" value="' + esc(it.due || '') + '" placeholder="YYYY-MM-DD 或 YYYY-MM-DD HH:mm"></label>'
-      +   '<label>交到哪<input data-id="' + it.id + '" data-field="where" value="' + esc(it.where || '') + '" placeholder="未识别"></label>'
-      +   '</div>'
-      +   '<div class="card-actions">'
-      +   '<button class="primary" data-act="confirm" data-id="' + it.id + '">确认</button>'
-      +   '<button data-act="discard" data-id="' + it.id + '">丢弃</button>'
-      +   '<button class="ghost" data-act="src" data-id="' + it.id + '">看原文出处</button>'
-      +   '</div>'
+      + (it.reasons.length ? '<div class="reasons">' + it.reasons.map((r) => '<span class="chip">' + esc(r) + '</span>').join('') + '</div>' : '')
+      + '<div class="fields">'
+      + '<label>交什么 / 做什么<input data-id="' + it.id + '" data-field="action" value="' + esc(it.action) + '"></label>'
+      + '<label>谁<input data-id="' + it.id + '" data-field="owner" value="' + esc(it.owner || '') + '" placeholder="待分配"></label>'
+      + '<label>截止时间<input data-id="' + it.id + '" data-field="due" value="' + esc(it.due || '') + '" placeholder="YYYY-MM-DD 或 YYYY-MM-DD HH:mm"></label>'
+      + '<label>交到哪<input data-id="' + it.id + '" data-field="where" value="' + esc(it.where || '') + '" placeholder="未识别"></label>'
+      + '</div>'
+      + '<div class="card-actions">'
+      + '<button class="primary" data-act="confirm" data-id="' + it.id + '">确认</button>'
+      + '<button data-act="discard" data-id="' + it.id + '">丢弃</button>'
       + '</div></article>';
   }).join('');
 }
@@ -1472,11 +1541,40 @@ function confirmItem(id) {
   renderAll();
 }
 
-function jumpTo(srcIdx, paraIdx) {
-  state.highlight = { srcIdx: srcIdx, paraIdx: paraIdx };
-  renderRaw();
+/* 把左侧原文滚到当前定位段。左栏在桌面端是独立滚动容器，不能直接 scrollIntoView
+   整个页面，否则会把「待确认」栏一起顶走。 */
+function scrollRawToHighlight() {
   const el = elRaw.querySelector('.para.hl');
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (!el) return;
+  const pane = el.closest('.raw-panel');
+  if (!pane || pane.scrollHeight <= pane.clientHeight + 2) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  const r = el.getBoundingClientRect(), pr = pane.getBoundingClientRect();
+  const top = pane.scrollTop + (r.top - pr.top) - (pane.clientHeight - r.height) / 2;
+  pane.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+}
+
+function jumpTo(srcIdx, paraIdx, id) {
+  state.highlight = { srcIdx: srcIdx, paraIdx: paraIdx, id: id || null };
+  renderRaw();
+  renderReview();      /* 让右侧对应卡片进入 .active 态，形成「原文 ↔ 卡片」双向定位 */
+  scrollRawToHighlight();
+}
+
+/* 反向：点原文里被高亮的段落 → 滚到右侧对应卡片 */
+function focusRawParagraph(para) {
+  const si = Number(para.getAttribute('data-s'));
+  const pi = Number(para.getAttribute('data-p'));
+  const it = state.items.find((x) => x.status === 'pending' && x.srcIdx === si && x.sourceIndex === pi);
+  if (!it) return;
+  if (state.reviewFilter !== 'all') state.reviewFilter = 'all';   // 否则可能被筛掉、点了个空
+  state.highlight = { srcIdx: si, paraIdx: pi, id: it.id };
+  renderRaw();
+  renderReview();
+  const card = elReview.querySelector('.card.active');
+  if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 /* ===== 导出 ===== */
@@ -1576,7 +1674,7 @@ elClear.addEventListener('click', () => {
   state.highlight = null;
   state.lastFallback = null;
   state.lastDiscard = null;       // 否则清空后还能"撤销"出上一个会话的条目（spec S2.3）
-  state.rawExpanded = false;
+  state.rawExpanded = window.matchMedia('(min-width: 1080px)').matches;  // 与初始态一致：桌面展开、窄屏折叠
   state.llmRequests = 0;          // S2.11.2-3：预算随会话清空归零
   saveBudget(0);                  // 同步写回，否则刷新后又读回旧值
   state.llmLastRequestAt = 0;
@@ -1659,7 +1757,7 @@ elReview.addEventListener('click', (e) => {
     toast('已丢弃，可用「撤销上次丢弃」恢复');
     renderAll();
   }
-  else if (act === 'src') jumpTo(it.srcIdx, it.sourceIndex);
+  else if (act === 'src') jumpTo(it.srcIdx, it.sourceIndex, it.id);
 });
 
 elReview.addEventListener('change', (e) => {
@@ -1697,7 +1795,23 @@ elTodo.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act="src"]');
   if (!btn) return;
   const it = findItem(btn.getAttribute('data-id'));
-  if (it) jumpTo(it.srcIdx, it.sourceIndex);
+  if (it) jumpTo(it.srcIdx, it.sourceIndex, it.id);
+});
+
+/* 原文侧：点被高亮的段落 → 定位右侧卡片（反向联动） */
+elRaw.addEventListener('click', (e) => {
+  const para = e.target.closest('.para.pend');
+  if (!para) return;
+  const sel = window.getSelection();
+  if (sel && String(sel).length > 0) return;   // 正在选文字复制时不抢点击
+  focusRawParagraph(para);
+});
+elRaw.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const para = e.target.closest('.para.pend');
+  if (!para) return;
+  e.preventDefault();
+  focusRawParagraph(para);
 });
 
 elExport.addEventListener('click', downloadExport);
