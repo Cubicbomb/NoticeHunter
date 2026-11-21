@@ -136,6 +136,21 @@
     border-radius: 10px; padding: 13px 15px; margin-bottom: 12px;
   }
   .card.low { background: #fffdf5; border-color: #fcd34d; border-left-color: var(--warn-line); }
+  /* 规则补充：AI 成功但漏掉的段落，用灰调与 AI 结果拉开层级（2026-11-21） */
+  .card.supplement {
+    background: #f8f9fa; border-color: #e5e7eb; border-left-color: #cbd5e1;
+    color: #6b7280;
+  }
+  .card.supplement .card-head .loc { color: #6b7280; }
+  .card.supplement .reasons .chip {
+    background: #f3f4f6; color: #6b7280; border-color: #e5e7eb;
+  }
+  .card.supplement .badge.warn,
+  .card.supplement .badge.mute {
+    background: #f3f4f6; color: #6b7280; border-color: #e5e7eb;
+  }
+  .card.supplement .fields label { color: #9ca3af; }
+  .card.supplement .fields input { color: #4b5563; border-color: #e5e7eb; }
   .card.active { border-color: var(--accent); border-left-color: var(--accent); box-shadow: 0 0 0 3px #dbeafe; }
   .card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .card-head .loc {
@@ -178,6 +193,10 @@
   }
   .todo.done .todo-action { text-decoration: line-through; color: var(--done); }
   .todo.done .todo-meta { color: var(--done); }
+  /* 清单里的规则补充项同样灰调，与 AI 结果保持视觉分层 */
+  .todo.supplement { background: #f8f9fa; border-color: #e5e7eb; }
+  .todo.supplement .todo-action { color: #6b7280; }
+  .todo.supplement .todo-meta { color: #9ca3af; }
   .todo input[type="checkbox"] { width: 17px; height: 17px; margin-top: 3px; accent-color: var(--accent); cursor: pointer; }
   .todo-body { flex: 1; min-width: 0; }
   .todo-due { font-size: 13px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -1260,6 +1279,26 @@ function ruleExtractItems(name, paragraphs, srcIdx) {
   return out;
 }
 
+/* 方案 A：AI 成功后的规则补漏（2026-11-21 追加，spec S2.13）
+   AI 是主抽取器；规则只补「AI 没有产出有效条目的段落」，绝不改写 AI 结果。
+   补漏一律强制 low + 明确原因；AI 返回 [] 时不补——那是「整篇没有待办」的有效判断，
+   再跑规则就是凭空造条目（S2.12 / T17 已修过的 bug）。
+   也不是所有带日期的段落都值得补：发布日期、落款日期没有交件动词、地点或责任人，
+   补进来只会制造噪声，所以要求原文出现交件动词，或至少有地点 / 责任人。 */
+function ruleSupplementItems(src, srcIdx, aiItems) {
+  const covered = new Set(aiItems.map((it) => it.sourceIndex));
+  const out = [];
+  for (const it of ruleExtractItems(src.name, src.paragraphs, srcIdx)) {
+    if (covered.has(it.sourceIndex)) continue;
+    if (!RE_VERB.test(it.sourceText) && !it.where && !it.owner) continue;
+    it.confidence = 'low';
+    it.supplement = true;
+    it.reasons = ['AI 未从本段抽取，由规则补充，请核对'].concat(it.reasons).slice(0, 4);
+    out.push(it);
+  }
+  return out;
+}
+
 /* ===== 规则式抽取（确定性正则，不调用任何模型）===== */
 const pad = (n) => String(n).padStart(2, '0');
 const RE_FULL = /(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/;
@@ -1471,7 +1510,7 @@ async function extractSource(srcIdx, opts) {
 
   const alive = () => state.sessionId === sid;
   const setSummary = (text) => { if (alive()) state.lastSummary = text; };
-  let raw = [], notes = [], cand = null, batchDone = 0, batchTotal = 0;
+  let raw = [], notes = [], cand = null, batchDone = 0, batchTotal = 0, supplements = [];
   try {
     if (!llmConfigured()) {
       if (alive()) state.items.push(...ruleExtractItems(src.name, src.paragraphs, srcIdx));
@@ -1531,7 +1570,9 @@ async function extractSource(srcIdx, opts) {
       return;
     }
     if (!mapped.items.length) throw new Error('AI 返回的条目经校验后全部被剔除，已回退规则式抽取');
-    state.items.push(...mapped.items);
+    /* 方案 A：AI 成功产出了条目，才用规则补它没覆盖的段落；AI 已有条目的段落以 AI 为准 */
+    supplements = ruleSupplementItems(src, srcIdx, mapped.items);
+    state.items.push(...mapped.items, ...supplements);
 
     const high = mapped.items.filter((x) => x.confidence !== 'low').length;
     const low = mapped.items.length - high;
@@ -1541,16 +1582,20 @@ async function extractSource(srcIdx, opts) {
     if (mapped.stats.relocated) bits.push('校正出处 ' + mapped.stats.relocated + ' 条');
     if (mapped.stats.unverified) bits.push('出处待核 ' + mapped.stats.unverified + ' 条');
     if (notes.length) bits.push(notes[0]);
+    const supBit = supplements.length
+      ? '；规则补漏 ' + supplements.length + ' 条（低置信度，请核对）' : '';
     setSummary('《' + src.name + '》AI 抽取完成：' + mapped.items.length + ' 条（高 ' + high
-      + ' / 低 ' + low + '）' + (bits.length ? '；' + bits.join('；') : ''));
+      + ' / 低 ' + low + '）' + (bits.length ? '；' + bits.join('；') : '') + supBit);
 
     /* 失败/降级提示优先占 toast；成功摘要常驻状态栏，不跟它抢 */
+    const supToast = supplements.length ? '；规则补漏 ' + supplements.length + ' 条' : '';
     if (mapped.stats.dropped > 0) {
-      toast('AI 返回的 ' + mapped.stats.dropped + ' 条已剔除（来源编号非法或字段缺失）');
+      toast('AI 返回的 ' + mapped.stats.dropped + ' 条已剔除（来源编号非法或字段缺失）' + supToast);
     } else if (notes.length) {
-      toast(notes[0]);
+      toast(notes[0] + supToast);
     } else {
-      toast('AI 抽取完成：' + mapped.items.length + ' 条待确认（高 ' + high + ' / 低 ' + low + '）');
+      toast('AI 抽取完成：' + mapped.items.length + ' 条待确认（高 ' + high + ' / 低 ' + low + '）'
+        + supToast);
     }
   } catch (e) {
     if (!alive()) return;
@@ -1738,6 +1783,12 @@ function renderParaText(text, items) {
   return out + esc(text.slice(at));
 }
 
+/* 来源标注：AI / 规则式（故障兜底）/ 规则补充（AI 成功但漏掉的段落） */
+function extractorLabel(it) {
+  if (it.supplement) return '规则补充';
+  return it.extractor === 'ai' ? 'AI' : '规则式';
+}
+
 function renderReview() {
   const pending = state.items.filter((it) => it.status === 'pending');
   const lowCount = pending.filter((it) => it.confidence === 'low').length;
@@ -1775,11 +1826,12 @@ function renderReview() {
     const active = state.highlight
       && state.highlight.srcIdx === it.srcIdx
       && state.highlight.paraIdx === it.sourceIndex;
-    return '<article class="card' + (low ? ' low' : '') + (active ? ' active' : '') + '"'
+    return '<article class="card' + (low ? ' low' : '') + (it.supplement ? ' supplement' : '')
+      + (active ? ' active' : '') + '"'
       + ' data-src-idx="' + it.srcIdx + '" data-para="' + it.sourceIndex + '">'
       + '<div class="card-head">'
       +   '<span class="badge' + (low ? ' warn' : '') + '">' + (low ? '低置信度' : '高置信度') + '</span>'
-      +   '<span class="badge mute">' + (it.extractor === 'ai' ? 'AI' : '规则式') + '</span>'
+      +   '<span class="badge mute">' + extractorLabel(it) + '</span>'
       +   '<button class="loc" data-act="src" data-id="' + it.id + '" title="在左侧原文中定位并高亮">'
       +     esc(it.sourceName) + ' · 第 ' + it.sourceIndex + ' 段 ↗</button>'
       + '</div>'
@@ -1846,14 +1898,15 @@ function renderList() {
 
   elListEmpty.style.display = items.length ? 'none' : 'block';
   elTodo.innerHTML = items.map((it) => {
-    return '<li class="todo' + (it.status === 'done' ? ' done' : '') + '">'
+    return '<li class="todo' + (it.status === 'done' ? ' done' : '')
+      + (it.supplement ? ' supplement' : '') + '">'
       + '<input type="checkbox" data-id="' + it.id + '"' + (it.status === 'done' ? ' checked' : '') + '>'
       + '<div class="todo-body">'
       + '<div class="todo-due' + (it.due ? '' : ' vague') + '">' + esc(it.due || ('截止时间模糊（' + (it.dueRaw || '未识别') + '）')) + '</div>'
       + '<div class="todo-action">' + esc(it.action) + '</div>'
       + '<div class="todo-meta">谁：' + esc(it.owner || '待分配') + ' · 交到：' + esc(it.where || '(未识别)') + '</div>'
       + '<div class="todo-badges">'
-      + '<span class="badge mute">' + (it.extractor === 'ai' ? 'AI' : '规则式') + '</span> '
+      + '<span class="badge mute">' + extractorLabel(it) + '</span> '
       + (it.conflict ? '<span class="badge warn">同日撞期</span> ' : '')
       + (it.mergedFrom > 1 ? '<span class="badge mute">合并自 ' + it.mergedFrom + ' 个来源</span> ' : '')
       + '<span class="badge mute">' + esc(it.sourceName) + ' 第 ' + it.sourceIndex + ' 段</span>'

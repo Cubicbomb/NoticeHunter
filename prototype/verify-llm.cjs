@@ -28,6 +28,7 @@ const MANYFILE = path.join(__dirname, 'test', '_many250.txt');    // 250 条候�
 /* 2026-11-21 新增用例素材 */
 const ONEFILE = path.join(__dirname, 'test', '_one.txt');         // 1 段、含明确日期
 const INTERN = path.join(SAMPLES, 'notice-internship.txt');
+const SUPPFILE = path.join(__dirname, 'test', '_supp.txt');       // 2 段都可被规则抽出，用于补漏
 
 const results = [];
 function check(name, cond, detail) {
@@ -151,8 +152,10 @@ async function walkConfirmExport(page, label) {
     cards.some((c) => c.action.indexOf('【STUB】') >= 0),
     allCards + ' cards | ' + cards.map((c) => c.action).join(' || ').slice(0, 220));
   const aiCards = cards.filter((c) => c.badges.indexOf('AI') >= 0).length;
-  check('T3 卡片标注来源为 AI', allCards > 0 && aiCards === allCards,
-    'aiCards=' + aiCards + '/' + allCards);
+  const supCards = cards.filter((c) => c.badges.indexOf('规则补充') >= 0).length;
+  check('T3 卡片来源为 AI 或规则补充（不再把规则结果藏起来）',
+    allCards > 0 && aiCards > 0 && aiCards + supCards === allCards,
+    'ai=' + aiCards + ' sup=' + supCards + '/' + allCards);
   const firstRaw = await page.locator('#rawList .para[data-s="0"][data-p="1"]').count()
     ? await page.locator('#rawList .para[data-s="0"][data-p="1"]').innerText() : '';
   check('T3 sourceIndex=1 正确映射到原文首段',
@@ -264,7 +267,7 @@ async function walkConfirmExport(page, label) {
   await page.locator('#reviewList button[data-act="confirm"]').first().click();
   await page.waitForTimeout(300);
   const listText = await page.locator('#todoList').innerText();
-  check('T6 清单条目显示来源标注', /AI|规则式/.test(listText), listText.replace(/\s+/g, ' ').slice(0, 60));
+  check('T6 清单条目显示来源标注', /AI|规则式|规则补充/.test(listText), listText.replace(/\s+/g, ' ').slice(0, 60));
   /* T6 重试按钮在空闲时可用 */
   check('T6 重试按钮在空闲时可用',
     !(await page.locator('#llmRetry').isDisabled()), 'disabled=' + await page.locator('#llmRetry').isDisabled());
@@ -274,7 +277,8 @@ async function walkConfirmExport(page, label) {
   const setRaw = (s) => ctl({ mode: 'ok', payload: null, raw: s });
   const lastItems = (page) => page.evaluate(() => state.items.map((x) => ({
     action: x.action, due: x.due, idx: x.sourceIndex, confidence: x.confidence,
-    mergedFrom: x.mergedFrom, reasons: x.reasons, extractor: x.extractor
+    mergedFrom: x.mergedFrom, reasons: x.reasons, extractor: x.extractor,
+    supplement: !!x.supplement
   })));
   const loadFresh = async (page, file, wait) => {
     await page.click('#clear');
@@ -283,6 +287,9 @@ async function walkConfirmExport(page, label) {
     await page.waitForTimeout(wait || 1800);
   };
   fs.writeFileSync(ONEFILE, '请于 2027 年 10 月 1 日前将材料交至测试地点。\n', 'utf8');
+  fs.writeFileSync(SUPPFILE,
+    '请于 2026 年 11 月 5 日 17:00 前，将《鉴定表》交至学院办公室。\n'
+    + '请于 2026 年 11 月 6 日 17:00 前，将《实习日志》交至教务办。\n', 'utf8');
 
   /* T14：前言 + markdown 围栏 —— 真实模型最常见的两种「不听话」 */
   await setRaw('好的，以下是抽取结果：\n```json\n[{"action":"带前言的条目","owner":null,"where":null,'
@@ -401,6 +408,63 @@ async function walkConfirmExport(page, label) {
     /连接失败/.test(testBad) && /HTTP 500/.test(testBad), testBad);
   await ctl({ mode: 'ok' });
 
+  /* ==================== 2026-11-21 · AI + 规则条目级补漏（T23–T25） ==================== */
+  /* T23：AI 只覆盖第 1 段，第 2 段由规则补；AI 条目不被改写 */
+  await setRaw('[{"action":"提交《鉴定表》","owner":null,"where":"学院办公室",'
+    + '"dueRaw":"2026 年 11 月 5 日 17:00 前","due":"2026-11-05 17:00","sourceIndex":1,'
+    + '"confidence":"high","reasons":[]}]');
+  await loadFresh(page, SUPPFILE);
+  const t23 = await lastItems(page);
+  const ai23 = t23.find((x) => x.extractor === 'ai');
+  const sup23 = t23.find((x) => x.supplement);
+  check('T23 AI 漏掉的第 2 段由规则补漏（共 2 条）',
+    t23.length === 2 && !!ai23 && !!sup23 && sup23.idx === 2,
+    JSON.stringify(t23.map((x) => ({ e: x.extractor, s: x.supplement, i: x.idx }))));
+  check('T23 补漏条目强制 low 并写明「规则补充」原因',
+    !!sup23 && sup23.confidence === 'low'
+      && sup23.reasons.join('').indexOf('规则补充') >= 0,
+    JSON.stringify(sup23 && { c: sup23.confidence, r: sup23.reasons }));
+  check('T23 AI 条目未被补漏改写（仍是 high + 原 action）',
+    !!ai23 && ai23.confidence === 'high' && ai23.action === '提交《鉴定表》',
+    JSON.stringify(ai23 && { a: ai23.action, c: ai23.confidence }));
+  const supCardText = await page.locator('#reviewList .card[data-para="2"]').innerText();
+  check('T23 补漏卡片标注「规则补充」', supCardText.indexOf('规则补充') >= 0,
+    supCardText.replace(/\s+/g, ' ').slice(0, 120));
+  const sum23 = (await page.locator('#aiStatus').innerText()).trim();
+  check('T23 状态栏摘要说明规则补漏条数', /规则补漏 1 条/.test(sum23), sum23);
+
+  /* T26：规则补充卡片必须与 AI 卡片有视觉分层（灰调），不能只靠一枚徽章 */
+  const supCard = page.locator('#reviewList .card[data-para="2"]');
+  const supVisual = await supCard.evaluate((el) => ({
+    cls: el.className,
+    bg: getComputedStyle(el).backgroundColor,
+    border: getComputedStyle(el).borderLeftColor
+  }));
+  check('T26 规则补充卡片带 supplement 类且背景为灰调（非白底）',
+    /\bsupplement\b/.test(supVisual.cls) && supVisual.bg !== 'rgb(255, 255, 255)',
+    JSON.stringify(supVisual));
+
+  /* T24：AI 已覆盖两段时不得重复补漏 */
+  await setRaw('[{"action":"提交《鉴定表》","owner":null,"where":"学院办公室",'
+    + '"dueRaw":"2026 年 11 月 5 日 17:00 前","due":"2026-11-05 17:00","sourceIndex":1,'
+    + '"confidence":"high","reasons":[]},'
+    + '{"action":"提交《实习日志》","owner":null,"where":"教务办",'
+    + '"dueRaw":"2026 年 11 月 6 日 17:00 前","due":"2026-11-06 17:00","sourceIndex":2,'
+    + '"confidence":"high","reasons":[]}]');
+  await page.click('#llmRetry');
+  await page.waitForTimeout(2500);
+  const t24 = await lastItems(page);
+  check('T24 AI 已覆盖全部段落时不重复补漏',
+    t24.length === 2 && t24.every((x) => x.extractor === 'ai' && !x.supplement),
+    JSON.stringify(t24.map((x) => ({ e: x.extractor, s: x.supplement, i: x.idx }))));
+
+  /* T25：AI 返回 [] 时仍然不补漏（保持 S2.12 / T17 的「空结果是有效判断」） */
+  await setRaw('[]');
+  await loadFresh(page, SUPPFILE);
+  const t25 = await lastItems(page);
+  check('T25 AI 返回空结果时不补漏（规则式本可产出 2 条）',
+    t25.length === 0, 'items=' + t25.length + ' | ' + JSON.stringify(t25.map((x) => x.extractor)));
+
   /* ===== T4 · 无候选段落不发请求（验收措辞已于 spec 中修订为可证伪四条）===== */
   await ctl({ reset: true, mode: 'ok' });
   const before = (await stubState()).requests;
@@ -455,11 +519,15 @@ async function walkConfirmExport(page, label) {
   /* 2026-11-21：新增同文件去重后，stub 两批返回的是同一条内容（同 action/due/owner），
      会被合并成 1 条且 mergedFrom=2。这仍然能证伪「截断成 1 批」：若只收到第二批，
      mergedFrom 只会是 1。 */
-  const bigInfo = await page.evaluate(() => state.items.map((x) => ({ m: x.mergedFrom, i: x.sourceIndex })));
+  const bigInfo = await page.evaluate(() => state.items.map((x) => ({
+    m: x.mergedFrom, i: x.sourceIndex, e: x.extractor, s: !!x.supplement
+  })));
+  const bigAI = bigInfo.filter((x) => x.e === 'ai');
   check('S2.5 65 条候选分批顺序发送为 2 次请求（而非静默截断）',
     r1 - r0 === 2, 'requests delta=' + (r1 - r0));
-  check('S2.5 两批结果都被接收（同一条目由 2 次返回合并，未丢批次）',
-    bigInfo.length === 1 && bigInfo[0].m === 2, JSON.stringify(bigInfo));
+  check('S2.5 两批结果都被接收（AI 条目由 2 次返回合并，未丢批次）',
+    bigAI.length === 1 && bigAI[0].m === 2,
+    JSON.stringify(bigInfo.filter((x) => x.e === 'ai')) + ' | supplements=' + bigInfo.filter((x) => x.s).length);
 
   /* ==================== S2.11 硬安全上限 ==================== */
   const counterEl = page.locator('#llmCounter');
@@ -663,7 +731,7 @@ async function walkConfirmExport(page, label) {
 
   await browser.close();
   fs.unlinkSync(NODATE);
-  for (const f of [BIGFILE, SINGLEFILE, LONGFILE, MANYFILE, ONEFILE]) {
+  for (const f of [BIGFILE, SINGLEFILE, LONGFILE, MANYFILE, ONEFILE, SUPPFILE]) {
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
 
