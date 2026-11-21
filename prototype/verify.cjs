@@ -54,6 +54,12 @@ function check(name, cond, detail) {
 
   await page.goto(URL, { waitUntil: 'load' });
 
+  /* 首屏空态：hidden 必须真的生效（2026-11-21 修复回归） */
+  check('T1 首屏不显示「展开全文」开关（hidden 生效）',
+    !(await page.locator('#rawToggle').isVisible()));
+  check('T1 首屏不显示空的汇总统计条',
+    !(await page.locator('#deadlineStats').isVisible()));
+
   /* ===== T1 内联样例 ===== */
   await page.click('#sample');
   await page.waitForTimeout(150);
@@ -132,6 +138,25 @@ function check(name, cond, detail) {
   }
   check('T4 编辑后的字段在确认后反映到清单', editedOk,
     editTarget ? editedSeen.replace(/\s+/g, ' ').slice(0, 60) : '(no editable low card found)');
+
+  /* T4 非法截止时间：必须拒绝并回填旧值，不能「看着改了、其实没改」 */
+  const dueId = await page.$$eval('#reviewList input[data-field="due"]', (els) => {
+    const e = els.find((x) => x.value.trim());
+    return e ? e.getAttribute('data-id') : null;
+  });
+  if (dueId) {
+    const dueInp = page.locator('input[data-id="' + dueId + '"][data-field="due"]');
+    const dueBefore = await dueInp.inputValue();
+    await dueInp.fill('明天下午');
+    await dueInp.blur();
+    await page.waitForTimeout(80);
+    check('T4 非法截止时间被拒绝并回填原值',
+      (await dueInp.inputValue()) === dueBefore
+        && (await page.locator('#toast').innerText()).indexOf('截止时间格式') >= 0,
+      'before=' + dueBefore + ' after=' + (await dueInp.inputValue()));
+  } else {
+    check('T4 非法截止时间被拒绝并回填原值', false, '没有带截止时间的待确认卡片');
+  }
 
   /* T4 丢弃 */
   const beforeDiscard = await page.locator('#reviewList .card').count();
@@ -579,6 +604,43 @@ function check(name, cond, detail) {
   check('T9 file:// 直开：样例与 .docx 解析均可用且无异常',
     fPara > 10 && fRaw.indexOf('2026 年 11 月 12 日') >= 0 && errors2.length === 0,
     'paras=' + fPara + ' / errors=' + (errors2.join(';') || 'none'));
+
+  /* ===== 2026-11-21 修复回归 ===== */
+  /* 已完成项不再算撞期：注入两条同日、都确认 → 有撞期；其中一条标完成 → 撞期消失 */
+  const conflictAfterDone = await page2.evaluate(() => {
+    const mk = (n) => ({
+      id: 'syn-c-' + n, sourceName: 'synthetic.txt', sourceIndex: n, sourceText: 'x', srcIdx: 0,
+      action: '同日任务' + n, owner: null, where: null, due: '2027-05-01', dueRaw: '2027-05-01',
+      confidence: 'high', reasons: [], status: 'confirmed', mergedFrom: 1
+    });
+    state.items.push(mk(1), mk(2));
+    renderAll();
+    const before = document.querySelectorAll('#conflictBar.on').length;
+    state.items.find((x) => x.id === 'syn-c-1').status = 'done';
+    renderAll();
+    const after = document.querySelectorAll('#conflictBar.on').length;
+    state.items = state.items.filter((x) => x.id.indexOf('syn-c-') !== 0);
+    renderAll();
+    return { before: before, after: after };
+  });
+  check('T6 已完成的项不再计入同日撞期',
+    conflictAfterDone.before === 1 && conflictAfterDone.after === 0, JSON.stringify(conflictAfterDone));
+
+  /* GBK / GB2312 的 .txt 不能静默变乱码：用真实 GBK 字节喂 #file */
+  const GBK_TXT = Buffer.from(
+    'b9d8d3dab2c4c1cfcce1bdbbb5c4cda8d6aa0ac7ebd3da32303236c4ea3131d4c235c8d531373a3030c7b0bdbbd6c1d1a7d4bab0ecb9abcad241333031a1a3',
+    'hex');
+  await page2.setInputFiles('#file', { name: 'gbk-notice.txt', mimeType: 'text/plain', buffer: GBK_TXT });
+  await page2.waitForTimeout(300);
+  const gbkRaw = await page2.locator('#rawList').innerText();
+  const gbkDue = await page2.$$eval('#reviewList input[data-field="due"]', (els) => {
+    const e = els.find((x) => x.value.indexOf('2026-11-05') === 0);
+    return e ? e.value : '';
+  });
+  check('T2 GBK 编码的 .txt 能正确解码（不乱码、能抽出截止日）',
+    gbkRaw.indexOf('学院办公室') >= 0 && gbkRaw.indexOf('\uFFFD') < 0 && gbkDue.indexOf('2026-11-05') === 0,
+    'due=' + gbkDue + ' / raw=' + gbkRaw.replace(/\s+/g, ' ').slice(-40));
+
   await page2.close();
 
   /* T7：未配置 key 的两种打开方式都不许发出外部请求 */

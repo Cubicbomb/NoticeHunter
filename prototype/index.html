@@ -19,6 +19,8 @@
     --done: #9ca3af;
   }
   * { box-sizing: border-box; }
+  /* [hidden] 必须压过 .row{display:flex} 这类作者样式，否则 JS 设 .hidden 根本不生效 */
+  [hidden] { display: none !important; }
   html, body { margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -87,7 +89,10 @@
   #llmSettings[open] summary { color: var(--accent); font-weight: 600; }
 
   /* 原文区 */
-  #rawList { max-height: 300px; overflow: auto; }
+  /* 折叠态已按「每份只渲染 6 段」限住了高度；若再套一层 300px 内滚动条，
+     多份样例时第二份就只剩一个空标题，看起来像「没加载出来」——改为由页面滚动。 */
+  #rawList { max-height: none; overflow: visible; }
+  #rawToggleRow { margin: 0 0 8px; }
   .para {
     padding: 7px 10px; border-left: 3px solid transparent; border-radius: 0 6px 6px 0;
     color: #374151; font-size: 13.5px;
@@ -102,12 +107,31 @@
     padding: 4px 10px; background: #f3f4f6; border-radius: 6px; font-weight: 600;
   }
 
-  /* 待确认卡片 */
+  /* 待确认卡片：左「原文 + 抽取位置高亮」，右「字段与确认操作」—— 2026-11-21 */
   .card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
+    gap: 0 16px;
     background: #fff; border: 1px solid var(--line); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 12px;
   }
   .card.low { background: #fffdf5; border-color: #fcd34d; }
+  .card-src {
+    min-width: 0; display: flex; flex-direction: column;
+    padding-right: 16px; border-right: 1px dashed var(--line);
+  }
+  .card-main { min-width: 0; }
+  .card-src-head { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+  .card-src .quote { flex: 1; margin-bottom: 0; max-height: 260px; overflow: auto; }
+  .quote mark {
+    background: #fde68a; color: #78350f; padding: 0 2px; border-radius: 3px;
+    box-decoration-break: clone; -webkit-box-decoration-break: clone;
+  }
+  @media (max-width: 720px) {
+    .card { grid-template-columns: 1fr; }
+    .card-src { padding: 0 0 10px; margin-bottom: 10px; border-right: none; border-bottom: 1px dashed var(--line); }
+    .card-src .quote { max-height: none; }
+  }
   .card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .card-head .src { font-size: 12px; color: var(--muted); }
   .reasons { margin-bottom: 10px; }
@@ -119,7 +143,7 @@
     font-size: 12.5px; color: var(--muted); background: #f8fafc;
     border-left: 3px solid var(--line); padding: 6px 10px; margin-bottom: 10px; border-radius: 0 6px 6px 0;
   }
-  .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 14px; }
   .fields label { font-size: 12px; color: var(--muted); display: block; }
   .fields input {
     font: inherit; font-size: 13.5px; width: 100%; margin-top: 3px;
@@ -177,7 +201,7 @@
   .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 24px; }
   @media (min-width: 1080px) {
     .wrap { max-width: 1180px; }
-    .split { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: start; }
+    .split { grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); align-items: start; }
   }
 
   /* ===== D-008 · 按截止日汇总 ===== */
@@ -267,11 +291,11 @@
 
   <section>
     <h2><span class="n">2</span>原文</h2>
-    <div class="panel"><div id="rawList"><p class="empty">还没有载入内容。先拖入一份通知，或点「用样例演示」。</p></div></div>
     <div class="row" id="rawToggleRow" hidden>
-      <button id="rawToggle" class="ghost">展开全文</button>
+      <button id="rawToggle" class="ghost">展开全部原文</button>
       <span class="hint" id="rawToggleHint"></span>
     </div>
+    <div class="panel"><div id="rawList"><p class="empty">还没有载入内容。先拖入一份通知，或点「用样例演示」。</p></div></div>
   </section>
 
   <div class="split">
@@ -303,7 +327,7 @@
 
   <section>
     <h2><span class="n">5</span>按截止日汇总</h2>
-    <div id="deadlineStats" class="stat-row"></div>
+    <div id="deadlineStats" class="stat-row" hidden></div>
     <div id="deadlineList"></div>
     <p id="deadlineEmpty" class="empty">还没有已确认的行动项。先在「待确认」里确认几条，这里就会按截止日聚合、倒计时并排好顺序。</p>
   </section>
@@ -518,6 +542,10 @@ async function _docxRaw(ab) {
 
 /* 对外接口：保证抛出的一定是中文说明（S2.4 要求），DataView 越界等原生异常一律兜底 */
 async function readDocxXml(ab) {
+  /* 特性检测放在最前面：否则缺 DecompressionStream 时会被下面的兜底误报成「文件已损坏」 */
+  if (typeof DecompressionStream !== 'function') {
+    throw new Error('当前浏览器不支持 .docx 解压（缺少 DecompressionStream），请改用 .txt，或换用新版 Chrome / Edge 打开');
+  }
   try {
     return await _docxRaw(ab);
   } catch (e) {
@@ -571,9 +599,17 @@ async function loadDocxFile(file) {
 }
 
 async function loadTxtFile(file) {
-  let text;
-  try { text = await file.text(); }
+  let buf;
+  try { buf = await file.arrayBuffer(); }
   catch (e) { toast('无法读取该文件：' + e.message); return null; }
+  let text;
+  try {
+    /* 先按严格 UTF-8 解：失败说明多半是 Windows 下常见的 GBK / GB2312 通知，不能静默出乱码 */
+    text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch (e) {
+    try { text = new TextDecoder('gb18030').decode(buf); }
+    catch (e2) { toast('无法识别该 .txt 的编码，请另存为 UTF-8 后重试'); return null; }
+  }
   const paragraphs = parseTxt(text);
   if (!paragraphs.length) { toast('文件已读取，但没有解析出正文段落'); return null; }
   return paragraphs;
@@ -891,7 +927,7 @@ function detectDue(text) {
     const time = timeNear(text, end);
     return {
       due: m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]) + time,
-      dueRaw: m[0] + time, idx: m.index, vague: false, hasYear: true,
+      dueRaw: m[0] + time, idx: m.index, end: end, vague: false, hasYear: true,
       marker: hasMarker(text, end)
     };
   }
@@ -901,7 +937,7 @@ function detectDue(text) {
     const time = timeNear(text, end);
     return {
       due: m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]) + time,
-      dueRaw: m[0] + time, idx: m.index, vague: false, hasYear: true,
+      dueRaw: m[0] + time, idx: m.index, end: end, vague: false, hasYear: true,
       marker: hasMarker(text, end)
     };
   }
@@ -912,12 +948,12 @@ function detectDue(text) {
     const time = timeNear(stripped, end);
     return {
       due: new Date().getFullYear() + '-' + pad(+m[1]) + '-' + pad(+m[2]) + time,
-      dueRaw: m[0] + time, idx: m.index, vague: false, hasYear: false,
+      dueRaw: m[0] + time, idx: m.index, end: end, vague: false, hasYear: false,
       marker: hasMarker(stripped, end)
     };
   }
   m = RE_VAGUE.exec(text);
-  if (m) return { due: null, dueRaw: m[0], idx: m.index, vague: true, hasYear: false, marker: true };
+  if (m) return { due: null, dueRaw: m[0], idx: m.index, end: m.index + m[0].length, vague: true, hasYear: false, marker: true };
   return null;
 }
 
@@ -1109,11 +1145,11 @@ function renderRaw() {
     elRawToggleRow.hidden = !collapsible;
     if (collapsible) {
       const shown = elRaw.querySelectorAll('.para').length;
-      elRawToggle.textContent = showAll ? '收起原文' : '展开全文';
+      elRawToggle.textContent = showAll ? '收起原文' : '展开全部原文';
       if (elRawToggleHint) {
         elRawToggleHint.textContent = showAll
           ? '已展开，正在显示全部 ' + total + ' 段'
-          : '已折叠，先显示前 ' + shown + ' 段（共 ' + total + ' 段）';
+          : '当前每份只显示前 ' + RAW_PREVIEW_COUNT + ' 段（共 ' + total + ' 段，已显示 ' + shown + ' 段）';
       }
     }
   }
@@ -1122,6 +1158,46 @@ function renderRaw() {
 function filterLabel() {
   return state.reviewFilter === 'low' ? '低置信度'
        : state.reviewFilter === 'high' ? '高置信度' : '全部';
+}
+
+/* 左栏原文里标出「被抽取的时间位置」；定位不到就原样输出，绝不猜一个位置 */
+function sourceHighlight(text, it) {
+  const src = String(text == null ? '' : text);
+  const raw = String(it.dueRaw || '').trim();
+  let start = -1, len = 0;
+  if (raw) {
+    let hit = raw;
+    let at = src.indexOf(hit);
+    if (at < 0) {
+      /* 规则式 dueRaw 是「日期 + 时间」拼出来的，中间可能还夹着「（周四）」 */
+      hit = raw.split(/\s+(?=\d{1,2}:\d{2})/)[0];
+      at = hit ? src.indexOf(hit) : -1;
+    }
+    if (at >= 0) { start = at; len = hit.length; }
+  }
+  if (start < 0) {
+    const info = detectDue(src);
+    if (info) { start = info.idx; len = (info.end || 0) - info.idx; }
+  }
+  if (start < 0 || len <= 0) return esc(src);
+
+  let cut = start + len;   /* 已被第一段高亮吃掉的末尾 */
+  let out = esc(src.slice(0, start)) + '<mark>' + esc(src.slice(start, cut)) + '</mark>';
+
+  /* 截止时间里的 HH:mm 也标出来（与日期之间隔着「（周四）」这类文字时，两段分开标） */
+  const dueText = String(it.due || '');
+  if (/\d{2}:\d{2}$/.test(dueText) && src.slice(start, cut).indexOf(':') < 0) {
+    let win = src.slice(cut, cut + 40);
+    const stop = win.search(/[。；;！!？?]/);
+    if (stop >= 0) win = win.slice(0, stop);
+    const tm = /(\d{1,2}):(\d{2})/.exec(win);
+    if (tm) {
+      const ts = cut + tm.index, te = ts + tm[0].length;
+      out += esc(src.slice(cut, ts)) + '<mark>' + esc(src.slice(ts, te)) + '</mark>';
+      cut = te;
+    }
+  }
+  return out + esc(src.slice(cut));
 }
 
 function renderReview() {
@@ -1159,23 +1235,27 @@ function renderReview() {
   elReview.innerHTML = shown.map((it) => {
     const low = isLow(it);
     return '<article class="card' + (low ? ' low' : '') + '">'
-      + '<div class="card-head">'
-      + '<span class="badge' + (low ? ' warn' : '') + '">' + (low ? '低置信度' : '高置信度') + '</span>'
-      + '<span class="badge mute">' + (it.extractor === 'ai' ? 'AI' : '规则式') + '</span>'
-      + '<span class="src">' + esc(it.sourceName) + ' · 第 ' + it.sourceIndex + ' 段</span>'
+      + '<div class="card-src">'
+      +   '<div class="card-src-head">原文 · ' + esc(it.sourceName) + ' 第 ' + it.sourceIndex + ' 段</div>'
+      +   '<div class="quote">' + sourceHighlight(it.sourceText, it) + '</div>'
       + '</div>'
-      + (it.reasons.length ? '<div class="reasons">' + it.reasons.map((r) => '<span class="chip">' + esc(r) + '</span>').join('') + '</div>' : '')
-      + '<div class="quote">' + esc(it.sourceText) + '</div>'
-      + '<div class="fields">'
-      + '<label>交什么 / 做什么<input data-id="' + it.id + '" data-field="action" value="' + esc(it.action) + '"></label>'
-      + '<label>谁<input data-id="' + it.id + '" data-field="owner" value="' + esc(it.owner || '') + '" placeholder="待分配"></label>'
-      + '<label>截止时间<input data-id="' + it.id + '" data-field="due" value="' + esc(it.due || '') + '" placeholder="YYYY-MM-DD 或 YYYY-MM-DD HH:mm"></label>'
-      + '<label>交到哪<input data-id="' + it.id + '" data-field="where" value="' + esc(it.where || '') + '" placeholder="未识别"></label>'
-      + '</div>'
-      + '<div class="card-actions">'
-      + '<button class="primary" data-act="confirm" data-id="' + it.id + '">确认</button>'
-      + '<button data-act="discard" data-id="' + it.id + '">丢弃</button>'
-      + '<button class="ghost" data-act="src" data-id="' + it.id + '">看原文出处</button>'
+      + '<div class="card-main">'
+      +   '<div class="card-head">'
+      +     '<span class="badge' + (low ? ' warn' : '') + '">' + (low ? '低置信度' : '高置信度') + '</span>'
+      +     '<span class="badge mute">' + (it.extractor === 'ai' ? 'AI' : '规则式') + '</span>'
+      +   '</div>'
+      +   (it.reasons.length ? '<div class="reasons">' + it.reasons.map((r) => '<span class="chip">' + esc(r) + '</span>').join('') + '</div>' : '')
+      +   '<div class="fields">'
+      +   '<label>交什么 / 做什么<input data-id="' + it.id + '" data-field="action" value="' + esc(it.action) + '"></label>'
+      +   '<label>谁<input data-id="' + it.id + '" data-field="owner" value="' + esc(it.owner || '') + '" placeholder="待分配"></label>'
+      +   '<label>截止时间<input data-id="' + it.id + '" data-field="due" value="' + esc(it.due || '') + '" placeholder="YYYY-MM-DD 或 YYYY-MM-DD HH:mm"></label>'
+      +   '<label>交到哪<input data-id="' + it.id + '" data-field="where" value="' + esc(it.where || '') + '" placeholder="未识别"></label>'
+      +   '</div>'
+      +   '<div class="card-actions">'
+      +   '<button class="primary" data-act="confirm" data-id="' + it.id + '">确认</button>'
+      +   '<button data-act="discard" data-id="' + it.id + '">丢弃</button>'
+      +   '<button class="ghost" data-act="src" data-id="' + it.id + '">看原文出处</button>'
+      +   '</div>'
       + '</div></article>';
   }).join('');
 }
@@ -1195,7 +1275,8 @@ function computeConflicts() {
   for (const it of state.items) it.conflict = false;
   const byDay = new Map();
   for (const it of confirmedItems()) {
-    if (!it.due) continue;
+    /* 已完成的项不再算撞期：与第 5 节「逾期只统计未完成项」保持同一口径 */
+    if (it.status === 'done' || !it.due) continue;
     const day = it.due.slice(0, 10);
     if (!byDay.has(day)) byDay.set(day, []);
     byDay.get(day).push(it);
@@ -1269,11 +1350,12 @@ function diffLabel(d) {
 function renderDeadline() {
   const items = confirmedItems();
   if (!items.length) {
-    if (elDeadlineStats) elDeadlineStats.innerHTML = '';
+    if (elDeadlineStats) { elDeadlineStats.innerHTML = ''; elDeadlineStats.hidden = true; }
     if (elDeadlineList) elDeadlineList.innerHTML = '';
     if (elDeadlineEmpty) elDeadlineEmpty.style.display = 'block';
     return;
   }
+  if (elDeadlineStats) elDeadlineStats.hidden = false;
   if (elDeadlineEmpty) elDeadlineEmpty.style.display = 'none';
 
   const byDay = new Map();
@@ -1591,6 +1673,7 @@ elReview.addEventListener('change', (e) => {
     if (!v) { it.due = null; return; }
     if (!/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(v)) {
       toast('截止时间格式应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm');
+      inp.value = it.due || '';   /* 回填旧值：否则输入框显示非法值、数据却仍是旧的 */
       return;
     }
     it.due = v;
